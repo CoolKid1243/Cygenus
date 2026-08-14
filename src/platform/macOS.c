@@ -5,7 +5,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#if defined(__APPLE__) && defined(__MACH__)
+// GLFW-based platform layer - works on macOS and Linux
+#if (defined(__APPLE__) && defined(__MACH__)) || defined(__linux__)
 
 struct PlatformWindow {
     GLFWwindow* glfw_window;

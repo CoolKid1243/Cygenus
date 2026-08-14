@@ -1,5 +1,7 @@
 // src/editor/editor.cpp
 #include "editor.h"
+#include "../scene/scene.h"
+#include "../scripting/script_system.h"
 #include <imgui.h>
 #include <imgui_internal.h>   // needed for DockBuilder* layout API
 #include <backends/imgui_impl_glfw.h>
@@ -14,8 +16,8 @@
 #include <dirent.h>
 #include <sys/stat.h>
 
-static Scene* current_scene = nullptr;
-static int selected_index = -1;
+static EcsWorld* world = nullptr;
+static Entity selected_entity = ECS_INVALID_ENTITY;
 static GLFWwindow* glfw_window = nullptr;
 static PlatformWindow* platform_window = nullptr;
 
@@ -30,7 +32,6 @@ static bool show_demo_window = false;
 static RHIFramebuffer* viewport_fb = NULL;
 static int fb_width = 0, fb_height = 0;
 
-static int object_counter = 0;
 static bool first_frame = true;
 
 static char console_text[1024] = "Console output (placeholder)";
@@ -245,19 +246,9 @@ static void apply_layout_preset(ImGuiID dockspace_id, int preset) {
 
 // ---------------------------------------------------------------------
 
-static void add_primitive(const char* mesh_path) {
-    if (!current_scene) return;
-    SceneObject obj;
-    memset(&obj, 0, sizeof(obj));
-    obj.position = (Vec3){0,0,0};
-    obj.rotation = (Vec3){0,0,0};
-    obj.scale = (Vec3){1,1,1};
-    obj.name[0] = '\0';
-    strncpy(obj.mesh_path, mesh_path, sizeof(obj.mesh_path)-1);
-    strncpy(obj.texture_path, "none", sizeof(obj.texture_path)-1);
-    obj.tint[0] = 1.0f; obj.tint[1] = 1.0f; obj.tint[2] = 1.0f;
-    scene_add_object(current_scene, obj);
-    selected_index = current_scene->object_count - 1;
+static void add_primitive(const char* primitive) {
+    if (!world) return;
+    selected_entity = scene_spawn_primitive(world, primitive);
 }
 
 static void list_directory(const char* path, const char* prefix) {
@@ -323,10 +314,9 @@ extern "C" void editor_shutdown() {
     ImGui::DestroyContext();
 }
 
-extern "C" void editor_set_scene(Scene* scene) {
-    current_scene = scene;
-    selected_index = -1;
-    object_counter = 0;
+extern "C" void editor_set_world(EcsWorld* w) {
+    world = w;
+    selected_entity = ECS_INVALID_ENTITY;
 }
 
 extern "C" void editor_new_frame() {
@@ -343,22 +333,9 @@ extern "C" int editor_is_mouse_over_viewport() {
     return mouse_over_viewport;
 }
 
-extern "C" void editor_run_game() {
-    char scene_path[256];
-    project_get_path("scenes/sample.scene", scene_path, sizeof(scene_path));
-    if (!scene_save(current_scene, scene_path)) {
-        printf("Failed to save scene before running!\n");
-        return;
-    }
-    char game_exe_path[256];
-    project_get_path("game_host", game_exe_path, sizeof(game_exe_path));
-    char src_path[512];
-    snprintf(src_path, sizeof(src_path), "./build/Release/game_host");
-    char cmd[1024];
-    snprintf(cmd, sizeof(cmd), "cp \"%s\" \"%s\" && chmod +x \"%s\"", src_path, game_exe_path, game_exe_path);
-    system(cmd);
-    snprintf(cmd, sizeof(cmd), "\"%s\" \"%s\" &", game_exe_path, scene_path);
-    system(cmd);
+// Toggles play mode: scripts in the project folder run while playing
+static void toggle_play() {
+    script_system_set_playing(!script_system_is_playing());
 }
 
 extern "C" RHIFramebuffer* editor_get_framebuffer() {
@@ -366,7 +343,7 @@ extern "C" RHIFramebuffer* editor_get_framebuffer() {
 }
 
 extern "C" void editor_render() {
-    if (!current_scene) return;
+    if (!world) return;
 
     ImGuiStyle& style = ImGui::GetStyle();
 
@@ -374,21 +351,19 @@ extern "C" void editor_render() {
     if (ImGui::BeginMainMenuBar()) {
         if (ImGui::BeginMenu("File")) {
             if (ImGui::MenuItem("New Scene", NULL, false, true)) {
-                scene_create(current_scene);
-                selected_index = -1;
-                object_counter = 0;
+                scene_new(world);
+                selected_entity = ECS_INVALID_ENTITY;
             }
             if (ImGui::MenuItem("Save Scene")) {
                 char path[256];
                 project_get_path("scenes/sample.scene", path, sizeof(path));
-                scene_save(current_scene, path);
+                scene_save(world, path);
             }
             if (ImGui::MenuItem("Load Scene")) {
                 char path[256];
                 project_get_path("scenes/sample.scene", path, sizeof(path));
-                scene_load(current_scene, path);
-                selected_index = -1;
-                object_counter = 0;
+                scene_load(world, path);
+                selected_entity = ECS_INVALID_ENTITY;
             }
             ImGui::EndMenu();
         }
@@ -423,7 +398,8 @@ extern "C" void editor_render() {
         // Single, centered Run button — neutral pill with an accent-colored icon,
         // closer to BeamNG/Unreal's understated toolbar buttons than a loud game-UI green.
         {
-            const char* run_label = "\xe2\x96\xb6  Run"; // ▶  Run
+            bool playing = script_system_is_playing();
+            const char* run_label = playing ? "\xe2\x96\xa0  Stop" : "\xe2\x96\xb6  Run"; // ■  Stop / ▶  Run
             float row_height = ImGui::GetFrameHeight(); // matches the menu bar row exactly, avoids clipping
             ImVec2 run_size = ImVec2(84, row_height);
             float bar_width = ImGui::GetWindowWidth();
@@ -437,7 +413,7 @@ extern "C" void editor_render() {
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, s.Colors[ImGuiCol_FrameBgHovered]);
             ImGui::PushStyleColor(ImGuiCol_ButtonActive, s.Colors[ImGuiCol_FrameBgActive]);
             ImGui::PushStyleColor(ImGuiCol_Text, accent);
-            if (ImGui::Button(run_label, run_size)) editor_run_game();
+            if (ImGui::Button(run_label, run_size)) toggle_play();
             ImGui::PopStyleColor(4);
             ImGui::PopStyleVar();
         }
@@ -475,15 +451,12 @@ extern "C" void editor_render() {
     // ---- Windows ----
     ImGui::Begin("Hierarchy");
     draw_panel_grid();
-    for (int i = 0; i < current_scene->object_count; i++) {
-        char label[64];
-        if (strncmp(current_scene->objects[i].mesh_path, "primitive:", 10) == 0) {
-            snprintf(label, sizeof(label), "%s##%d", current_scene->objects[i].mesh_path + 10, i);
-        } else {
-            snprintf(label, sizeof(label), "Object %d##%d", i, i);
-        }
-        if (ImGui::Selectable(label, (selected_index == i), 0, ImVec2(0,0))) {
-            selected_index = i;
+    for (int i = 0; i < ECS_MAX_ENTITIES; i++) {
+        if (!ecs_is_alive(world, i)) continue;
+        char label[96];
+        snprintf(label, sizeof(label), "%s##%d", world->names[i], i);
+        if (ImGui::Selectable(label, (selected_entity == i), 0, ImVec2(0,0))) {
+            selected_entity = i;
         }
     }
     ImGui::End();
@@ -528,53 +501,65 @@ extern "C" void editor_render() {
     // Inspector
     ImGui::Begin("Inspector");
     draw_panel_grid();
-    if (selected_index >= 0 && selected_index < current_scene->object_count) {
-        SceneObject* obj = &current_scene->objects[selected_index];
+    if (ecs_is_alive(world, selected_entity)) {
+        Entity e = selected_entity;
 
+        // Rename field - duplicate names get a (1) suffix on enter
+        char name_buf[64];
+        strncpy(name_buf, world->names[e], sizeof(name_buf)-1);
+        name_buf[sizeof(name_buf)-1] = '\0';
+        if (ImGui::InputText("Name", name_buf, sizeof(name_buf), ImGuiInputTextFlags_EnterReturnsTrue)) {
+            ecs_rename_entity(world, e, name_buf);
+        }
+
+        TransformComponent* t = &world->transforms[e];
         ImGui::SeparatorText("Transform");
-        float pos[3] = {obj->position.x, obj->position.y, obj->position.z};
+        float pos[3] = {t->position.x, t->position.y, t->position.z};
         if (ImGui::DragFloat3("Position", pos, 0.05f, -100.0f, 100.0f, "%.2f")) {
-            obj->position.x = pos[0]; obj->position.y = pos[1]; obj->position.z = pos[2];
+            t->position.x = pos[0]; t->position.y = pos[1]; t->position.z = pos[2];
+            t->dirty = 1;
         }
-        float rot[3] = {obj->rotation.x, obj->rotation.y, obj->rotation.z};
+        float rot[3] = {t->rotation.x, t->rotation.y, t->rotation.z};
         if (ImGui::DragFloat3("Rotation", rot, 0.5f, -360.0f, 360.0f, "%.1f")) {
-            obj->rotation.x = rot[0]; obj->rotation.y = rot[1]; obj->rotation.z = rot[2];
+            t->rotation.x = rot[0]; t->rotation.y = rot[1]; t->rotation.z = rot[2];
+            t->dirty = 1;
         }
-        float sca[3] = {obj->scale.x, obj->scale.y, obj->scale.z};
+        float sca[3] = {t->scale.x, t->scale.y, t->scale.z};
         if (ImGui::DragFloat3("Scale", sca, 0.05f, 0.01f, 10.0f, "%.2f")) {
-            obj->scale.x = sca[0]; obj->scale.y = sca[1]; obj->scale.z = sca[2];
+            t->scale.x = sca[0]; t->scale.y = sca[1]; t->scale.z = sca[2];
+            t->dirty = 1;
         }
 
+        MeshComponent* m = &world->meshes[e];
         ImGui::SeparatorText("Rendering");
         char mesh_path[128];
-        strncpy(mesh_path, obj->mesh_path, sizeof(mesh_path)-1);
+        strncpy(mesh_path, m->mesh_path, sizeof(mesh_path)-1);
+        mesh_path[sizeof(mesh_path)-1] = '\0';
         if (ImGui::InputText("Mesh", mesh_path, sizeof(mesh_path))) {
-            strncpy(obj->mesh_path, mesh_path, sizeof(obj->mesh_path)-1);
+            strncpy(m->mesh_path, mesh_path, sizeof(m->mesh_path)-1);
         }
         char tex_path[256];
-        strncpy(tex_path, obj->texture_path, sizeof(tex_path)-1);
+        strncpy(tex_path, m->texture_path, sizeof(tex_path)-1);
+        tex_path[sizeof(tex_path)-1] = '\0';
         if (ImGui::InputText("Texture", tex_path, sizeof(tex_path))) {
-            strncpy(obj->texture_path, tex_path, sizeof(obj->texture_path)-1);
+            strncpy(m->texture_path, tex_path, sizeof(m->texture_path)-1);
         }
-        float tint[3] = {obj->tint[0], obj->tint[1], obj->tint[2]};
+        float tint[3] = {m->tint[0], m->tint[1], m->tint[2]};
         if (ImGui::ColorEdit3("Tint", tint, 0)) {
-            obj->tint[0] = tint[0]; obj->tint[1] = tint[1]; obj->tint[2] = tint[2];
+            m->tint[0] = tint[0]; m->tint[1] = tint[1]; m->tint[2] = tint[2];
         }
 
         ImGui::Spacing();
         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.55f, 0.18f, 0.20f, 1.0f));
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.68f, 0.24f, 0.26f, 1.0f));
         ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.42f, 0.12f, 0.14f, 1.0f));
-        if (ImGui::Button("Delete Object", ImVec2(ImGui::GetContentRegionAvail().x, 30))) {
-            for (int j = selected_index; j < current_scene->object_count - 1; j++) {
-                current_scene->objects[j] = current_scene->objects[j+1];
-            }
-            current_scene->object_count--;
-            selected_index = -1;
+        if (ImGui::Button("Delete Entity", ImVec2(ImGui::GetContentRegionAvail().x, 30))) {
+            ecs_destroy_entity(world, e);
+            selected_entity = ECS_INVALID_ENTITY;
         }
         ImGui::PopStyleColor(3);
     } else {
-        ImGui::TextDisabled("No object selected");
+        ImGui::TextDisabled("No entity selected");
     }
     ImGui::End();
 
