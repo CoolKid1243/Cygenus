@@ -1,229 +1,142 @@
 #include "scene.h"
 #include <stdio.h>
 #include <string.h>
-#include <stdlib.h>
-#include <ctype.h>   // for toupper
 
-// Forward declaration
-// static int scene_find_object_by_name(const Scene* scene, const char* name);
-
-void scene_init(Scene* scene) {
-    scene->object_count = 0;
-    memset(scene->objects, 0, sizeof(scene->objects));
+void scene_new(EcsWorld* world) {
+    ecs_init(world);
+    scene_spawn_primitive(world, "cube");
 }
 
-// Helper to generate unique name
-static void generate_unique_name(Scene* scene, SceneObject* obj) {
-    if (strlen(obj->name) == 0) {
-        const char* base = obj->mesh_path;
-        if (strncmp(base, "primitive:", 10) == 0) base += 10;
-        char base_name[64];
-        strncpy(base_name, base, sizeof(base_name));
-        base_name[0] = toupper(base_name[0]);
-        int num = 0;
-        char temp[64];
-        do {
-            if (num == 0) snprintf(temp, sizeof(temp), "%s", base_name);
-            else snprintf(temp, sizeof(temp), "%s (%d)", base_name, num);
-            num++;
-        } while (scene_find_object_by_name(scene, temp) != -1);
-        strncpy(obj->name, temp, sizeof(obj->name)-1);
-    } else {
-        // User-provided name – ensure uniqueness
-        char temp[64];
-        strncpy(temp, obj->name, sizeof(temp)-1);
-        int num = 1;
-        while (scene_find_object_by_name(scene, temp) != -1) {
-            snprintf(temp, sizeof(temp), "%s (%d)", obj->name, num);
-            num++;
-        }
-        strncpy(obj->name, temp, sizeof(obj->name)-1);
-    }
+Entity scene_spawn_primitive(EcsWorld* world, const char* primitive) {
+    // Capitalize first letter for the entity name ("cube" -> "Cube")
+    char name[64];
+    snprintf(name, sizeof(name), "%s", primitive);
+    if (name[0] >= 'a' && name[0] <= 'z') name[0] -= 32;
+
+    Entity e = ecs_create_entity(world, name);
+    if (e == ECS_INVALID_ENTITY) return e;
+
+    ecs_add_component(world, e, COMPONENT_TRANSFORM);
+    TransformComponent* t = &world->transforms[e];
+    t->position = (Vec3){0, 0, 0};
+    t->rotation = (Vec3){0, 0, 0};
+    t->scale = (Vec3){1, 1, 1};
+    t->dirty = 1;
+
+    ecs_add_component(world, e, COMPONENT_MESH);
+    MeshComponent* m = &world->meshes[e];
+    snprintf(m->mesh_path, sizeof(m->mesh_path), "primitive:%s", primitive);
+    snprintf(m->texture_path, sizeof(m->texture_path), "none");
+    m->tint[0] = 1.0f; m->tint[1] = 1.0f; m->tint[2] = 1.0f;
+
+    return e;
 }
 
-int scene_add_object(Scene* scene, SceneObject obj) {
-    if (scene->object_count >= SCENE_MAX_OBJECTS) return -1;
-    obj.parent_index = -1;
-    obj.child_count = 0;
-    obj.dirty = 1;
-    // Ensure name is unique
-    generate_unique_name(scene, &obj);
-    scene->objects[scene->object_count] = obj;
-    scene->object_count++;
-    return scene->object_count - 1;
-}
-
-int scene_find_object_by_name(const Scene* scene, const char* name) {
-    for (int i = 0; i < scene->object_count; i++) {
-        if (strcmp(scene->objects[i].name, name) == 0) return i;
-    }
-    return -1;
-}
-
-void scene_rename_object(Scene* scene, int index, const char* new_name) {
-    if (index < 0 || index >= scene->object_count) return;
-    SceneObject* obj = &scene->objects[index];
-    char temp[64];
-    strncpy(temp, new_name, sizeof(temp)-1);
-    int num = 1;
-    while (1) {
-        int found = scene_find_object_by_name(scene, temp);
-        if (found == -1 || found == index) break;
-        snprintf(temp, sizeof(temp), "%s (%d)", new_name, num);
-        num++;
-    }
-    strncpy(obj->name, temp, sizeof(obj->name)-1);
-}
-
-void scene_set_parent(Scene* scene, int child_idx, int parent_idx) {
-    if (child_idx < 0 || child_idx >= scene->object_count) return;
-    SceneObject* child = &scene->objects[child_idx];
-    // Remove from old parent
-    if (child->parent_index >= 0) {
-        SceneObject* old_parent = &scene->objects[child->parent_index];
-        for (int i = 0; i < old_parent->child_count; i++) {
-            if (old_parent->child_indices[i] == child_idx) {
-                old_parent->child_indices[i] = old_parent->child_indices[old_parent->child_count-1];
-                old_parent->child_count--;
-                break;
-            }
-        }
-    }
-    // Add to new parent
-    child->parent_index = parent_idx;
-    if (parent_idx >= 0) {
-        SceneObject* new_parent = &scene->objects[parent_idx];
-        if (new_parent->child_count < MAX_CHILDREN) {
-            new_parent->child_indices[new_parent->child_count++] = child_idx;
-        }
-    }
-    // Mark dirty for child and descendants
-    child->dirty = 1;
-    for (int i = 0; i < child->child_count; i++) {
-        scene->objects[child->child_indices[i]].dirty = 1;
-    }
-}
-
-static void update_transform_recursive(Scene* scene, int idx, const float* parent_matrix) {
-    SceneObject* obj = &scene->objects[idx];
-    if (obj->dirty) {
-        float local[16];
-        mat4_compose_trs(local, obj->position, obj->rotation, obj->scale);
-        if (parent_matrix) {
-            mat4_multiply(obj->model_matrix, parent_matrix, local);
-        } else {
-            memcpy(obj->model_matrix, local, sizeof(obj->model_matrix));
-        }
-        obj->dirty = 0;
-    }
-    for (int i = 0; i < obj->child_count; i++) {
-        int child_idx = obj->child_indices[i];
-        update_transform_recursive(scene, child_idx, obj->model_matrix);
-    }
-}
-
-void scene_update_transforms(Scene* scene) {
-    for (int i = 0; i < scene->object_count; i++) {
-        if (scene->objects[i].parent_index == -1) {
-            update_transform_recursive(scene, i, NULL);
-        }
-    }
-}
-
-// Save/Load functions (existing ones, add the new fields to serialization)
-int scene_save(const Scene* scene, const char* filepath) {
+int scene_save(const EcsWorld* world, const char* filepath) {
     FILE* file = fopen(filepath, "w");
     if (!file) {
         printf("Failed to open %s for writing\n", filepath);
         return 0;
     }
-    fprintf(file, "SCENE %d\n", scene->object_count);
-    for (int i = 0; i < scene->object_count; i++) {
-        const SceneObject* obj = &scene->objects[i];
-        fprintf(file, "OBJECT\n");
-        fprintf(file, "name %s\n", obj->name);
-        fprintf(file, "position %f %f %f\n", obj->position.x, obj->position.y, obj->position.z);
-        fprintf(file, "rotation %f %f %f\n", obj->rotation.x, obj->rotation.y, obj->rotation.z);
-        fprintf(file, "scale %f %f %f\n", obj->scale.x, obj->scale.y, obj->scale.z);
-        fprintf(file, "mesh %s\n", obj->mesh_path);
-        fprintf(file, "texture %s\n", obj->texture_path);
-        fprintf(file, "tint %f %f %f\n", obj->tint[0], obj->tint[1], obj->tint[2]);
-        fprintf(file, "script %s\n", obj->script_path);
-        fprintf(file, "parent %d\n", obj->parent_index);
+    // Map entity id -> save order index so parents survive gaps in ids
+    int save_index[ECS_MAX_ENTITIES];
+    int count = 0;
+    for (int i = 0; i < ECS_MAX_ENTITIES; i++) {
+        save_index[i] = world->alive[i] ? count++ : -1;
+    }
+    fprintf(file, "SCENE %d\n", count);
+    for (int i = 0; i < ECS_MAX_ENTITIES; i++) {
+        if (!world->alive[i]) continue;
+        const TransformComponent* t = &world->transforms[i];
+        const MeshComponent* m = &world->meshes[i];
+        const ScriptComponent* s = &world->scripts[i];
+        fprintf(file, "ENTITY\n");
+        fprintf(file, "name %s\n", world->names[i]);
+        fprintf(file, "position %f %f %f\n", t->position.x, t->position.y, t->position.z);
+        fprintf(file, "rotation %f %f %f\n", t->rotation.x, t->rotation.y, t->rotation.z);
+        fprintf(file, "scale %f %f %f\n", t->scale.x, t->scale.y, t->scale.z);
+        fprintf(file, "mesh %s\n", m->mesh_path[0] ? m->mesh_path : "none");
+        fprintf(file, "texture %s\n", m->texture_path[0] ? m->texture_path : "none");
+        fprintf(file, "tint %f %f %f\n", m->tint[0], m->tint[1], m->tint[2]);
+        fprintf(file, "script %s\n", s->path[0] ? s->path : "none");
+        fprintf(file, "parent %d\n", t->parent == ECS_INVALID_ENTITY ? -1 : save_index[t->parent]);
         fprintf(file, "END\n");
     }
     fclose(file);
-    printf("Scene saved: %s (%d objects)\n", filepath, scene->object_count);
+    printf("Scene saved: %s (%d entities)\n", filepath, count);
     return 1;
 }
 
-int scene_load(Scene* scene, const char* filepath) {
+// Reads one line, strips the trailing newline
+static int read_line(FILE* file, char* out, int out_size) {
+    if (!fgets(out, out_size, file)) return 0;
+    out[strcspn(out, "\r\n")] = '\0';
+    return 1;
+}
+
+int scene_load(EcsWorld* world, const char* filepath) {
     FILE* file = fopen(filepath, "r");
     if (!file) {
         printf("Failed to open %s for reading\n", filepath);
         return 0;
     }
-    scene_init(scene);
-    int declared_count = 0;
-    fscanf(file, "SCENE %d\n", &declared_count);
-    char keyword[64];
-    while (fscanf(file, "%63s", keyword) == 1) {
-        if (strcmp(keyword, "OBJECT") != 0) continue;
-        SceneObject obj;
-        memset(&obj, 0, sizeof(obj));
-        char field[64];
-        while (fscanf(file, "%63s", field) == 1) {
-            if (strcmp(field, "name") == 0) fscanf(file, "%63s", obj.name);
-            else if (strcmp(field, "position") == 0) fscanf(file, "%f %f %f", &obj.position.x, &obj.position.y, &obj.position.z);
-            else if (strcmp(field, "rotation") == 0) fscanf(file, "%f %f %f", &obj.rotation.x, &obj.rotation.y, &obj.rotation.z);
-            else if (strcmp(field, "scale") == 0) fscanf(file, "%f %f %f", &obj.scale.x, &obj.scale.y, &obj.scale.z);
-            else if (strcmp(field, "mesh") == 0) fscanf(file, "%127s", obj.mesh_path);
-            else if (strcmp(field, "texture") == 0) fscanf(file, "%255s", obj.texture_path);
-            else if (strcmp(field, "tint") == 0) fscanf(file, "%f %f %f", &obj.tint[0], &obj.tint[1], &obj.tint[2]);
-            else if (strcmp(field, "script") == 0) fscanf(file, "%255s", obj.script_path);
-            else if (strcmp(field, "parent") == 0) fscanf(file, "%d", &obj.parent_index);
-            else if (strcmp(field, "END") == 0) break;
-        }
-        obj.child_count = 0;
-        obj.dirty = 1;
-        scene_add_object(scene, obj);
-    }
-    // After loading all, rebuild children lists
-    for (int i = 0; i < scene->object_count; i++) {
-        scene->objects[i].child_count = 0;
-    }
-    for (int i = 0; i < scene->object_count; i++) {
-        int p = scene->objects[i].parent_index;
-        if (p >= 0 && p < scene->object_count) {
-            SceneObject* parent = &scene->objects[p];
-            if (parent->child_count < MAX_CHILDREN) {
-                parent->child_indices[parent->child_count++] = i;
+    ecs_init(world);
+
+    Entity loaded[ECS_MAX_ENTITIES];
+    int parents[ECS_MAX_ENTITIES];
+    int count = 0;
+
+    char line[512];
+    Entity current = ECS_INVALID_ENTITY;
+    while (read_line(file, line, sizeof(line))) {
+        if (strncmp(line, "ENTITY", 6) == 0 || strncmp(line, "OBJECT", 6) == 0) {
+            current = ecs_create_entity(world, "Entity");
+            if (current == ECS_INVALID_ENTITY) break;
+            ecs_add_component(world, current, COMPONENT_TRANSFORM);
+            ecs_add_component(world, current, COMPONENT_MESH);
+            world->transforms[current].scale = (Vec3){1, 1, 1};
+            world->transforms[current].dirty = 1;
+            loaded[count] = current;
+            parents[count] = -1;
+            count++;
+        } else if (current != ECS_INVALID_ENTITY) {
+            TransformComponent* t = &world->transforms[current];
+            MeshComponent* m = &world->meshes[current];
+            if (strncmp(line, "name ", 5) == 0) {
+                ecs_rename_entity(world, current, line + 5);
+            } else if (strncmp(line, "position ", 9) == 0) {
+                sscanf(line + 9, "%f %f %f", &t->position.x, &t->position.y, &t->position.z);
+            } else if (strncmp(line, "rotation ", 9) == 0) {
+                sscanf(line + 9, "%f %f %f", &t->rotation.x, &t->rotation.y, &t->rotation.z);
+            } else if (strncmp(line, "scale ", 6) == 0) {
+                sscanf(line + 6, "%f %f %f", &t->scale.x, &t->scale.y, &t->scale.z);
+            } else if (strncmp(line, "mesh ", 5) == 0) {
+                snprintf(m->mesh_path, sizeof(m->mesh_path), "%.127s", line + 5);
+            } else if (strncmp(line, "texture ", 8) == 0) {
+                snprintf(m->texture_path, sizeof(m->texture_path), "%.255s", line + 8);
+            } else if (strncmp(line, "tint ", 5) == 0) {
+                sscanf(line + 5, "%f %f %f", &m->tint[0], &m->tint[1], &m->tint[2]);
+            } else if (strncmp(line, "script ", 7) == 0) {
+                if (line[7] && strcmp(line + 7, "none") != 0) {
+                    snprintf(world->scripts[current].path, sizeof(world->scripts[current].path), "%.255s", line + 7);
+                    ecs_add_component(world, current, COMPONENT_SCRIPT);
+                }
+            } else if (strncmp(line, "parent ", 7) == 0) {
+                sscanf(line + 7, "%d", &parents[count - 1]);
+            } else if (strcmp(line, "END") == 0) {
+                current = ECS_INVALID_ENTITY;
             }
         }
     }
     fclose(file);
-    printf("Scene loaded: %s (%d objects)\n", filepath, scene->object_count);
-    return 1;
-}
 
-void scene_create(Scene* scene) {
-    scene_init(scene);
-    SceneObject cube;
-    memset(&cube, 0, sizeof(cube));
-    cube.position = (Vec3){0,0,0};
-    cube.rotation = (Vec3){0,0,0};
-    cube.scale = (Vec3){1,1,1};
-    strcpy(cube.mesh_path, "primitive:cube");
-    strcpy(cube.texture_path, "none");
-    cube.tint[0] = 1.0f; cube.tint[1] = 1.0f; cube.tint[2] = 1.0f;
-    scene_add_object(scene, cube);
-    // SceneObject plane;
-    // memset(&plane, 0, sizeof(plane));
-    // plane.position = (Vec3){0, -0.5f, 0};
-    // plane.rotation = (Vec3){0,0,0};
-    // plane.scale = (Vec3){1,1,1};
-    // strcpy(plane.mesh_path, "primitive:plane");
-    // strcpy(plane.texture_path, "none");
-    // plane.tint[0] = 0.5f; plane.tint[1] = 0.5f; plane.tint[2] = 0.5f;
-    // scene_add_object(scene, plane);
+    // Hook up parents now that every entity exists
+    for (int i = 0; i < count; i++) {
+        if (parents[i] >= 0 && parents[i] < count) {
+            ecs_set_parent(world, loaded[i], loaded[parents[i]]);
+        }
+    }
+
+    printf("Scene loaded: %s (%d entities)\n", filepath, count);
+    return 1;
 }
