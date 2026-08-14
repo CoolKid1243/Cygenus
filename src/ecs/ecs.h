@@ -19,6 +19,7 @@ typedef enum {
     COMPONENT_TRANSFORM = 1 << 0,
     COMPONENT_MESH      = 1 << 1,
     COMPONENT_SCRIPT    = 1 << 2,
+    COMPONENT_MATERIAL  = 1 << 3,
 } ComponentType;
 
 // Position/rotation/scale + parent-child hierarchy
@@ -33,12 +34,16 @@ typedef struct {
     int dirty;
 } TransformComponent;
 
-// What mesh/texture/tint to render with
+// What mesh to render
 typedef struct {
     char mesh_path[128];
-    char texture_path[256];
-    float tint[3];
 } MeshComponent;
+
+// Surface look: colour + texture
+typedef struct {
+    float color[3];
+    char texture_path[256];
+} MaterialComponent;
 
 // Lua script attached to an entity
 typedef struct {
@@ -52,6 +57,7 @@ typedef struct {
     char names[ECS_MAX_ENTITIES][64];
     TransformComponent transforms[ECS_MAX_ENTITIES];
     MeshComponent meshes[ECS_MAX_ENTITIES];
+    MaterialComponent materials[ECS_MAX_ENTITIES];
     ScriptComponent scripts[ECS_MAX_ENTITIES];
 } EcsWorld;
 

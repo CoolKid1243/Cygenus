@@ -64,15 +64,20 @@ void render_system_sync(EcsWorld* world) {
             material_init(&cached_materials[i], active_shader);
         }
 
-        if (strcmp(loaded_texture_paths[i], m->texture_path) != 0) {
+        // Texture comes from the material component (no material = no texture)
+        const char* tex_path = "";
+        if (ecs_has_component(world, i, COMPONENT_MATERIAL)) {
+            tex_path = world->materials[i].texture_path;
+        }
+        if (strcmp(loaded_texture_paths[i], tex_path) != 0) {
             if (cached_textures[i]) rhi_texture_destroy(cached_textures[i]);
             cached_textures[i] = NULL;
-            if (m->texture_path[0] && strcmp(m->texture_path, "none") != 0) {
+            if (tex_path[0] && strcmp(tex_path, "none") != 0) {
                 char full_path[256];
-                project_get_path(m->texture_path, full_path, sizeof(full_path));
+                project_get_path(tex_path, full_path, sizeof(full_path));
                 cached_textures[i] = rhi_texture_create(full_path);
             }
-            snprintf(loaded_texture_paths[i], sizeof(loaded_texture_paths[i]), "%s", m->texture_path);
+            snprintf(loaded_texture_paths[i], sizeof(loaded_texture_paths[i]), "%s", tex_path);
             material_init(&cached_materials[i], active_shader);
             if (cached_textures[i]) material_set_texture(&cached_materials[i], cached_textures[i]);
         }
@@ -80,11 +85,17 @@ void render_system_sync(EcsWorld* world) {
 }
 
 void render_system_draw(EcsWorld* world) {
+    static const float identity[16] = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};
+    static const float white[3] = {1, 1, 1};
     for (int i = 0; i < ECS_MAX_ENTITIES; i++) {
         if (!ecs_is_alive(world, i) || !ecs_has_component(world, i, COMPONENT_MESH)) continue;
         if (!cached_meshes[i]) continue;
-        rhi_shader_set_mat4(active_shader, "uModel", world->transforms[i].model_matrix);
-        material_bind(&cached_materials[i], world->meshes[i].tint);
+        const float* model = ecs_has_component(world, i, COMPONENT_TRANSFORM)
+            ? world->transforms[i].model_matrix : identity;
+        const float* color = ecs_has_component(world, i, COMPONENT_MATERIAL)
+            ? world->materials[i].color : white;
+        rhi_shader_set_mat4(active_shader, "uModel", model);
+        material_bind(&cached_materials[i], color);
         rhi_mesh_draw(cached_meshes[i]);
     }
 }

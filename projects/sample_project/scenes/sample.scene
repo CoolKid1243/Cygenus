@@ -1,5 +1,5 @@
 SCENE 1
-OBJECT
+ENTITY
 name Cube
 position 0.000000 0.000000 0.000000
 rotation 0.000000 0.000000 0.000000
@@ -7,6 +7,5 @@ scale 1.000000 1.000000 1.000000
 mesh primitive:cube
 texture none
 tint 1.000000 1.000000 1.000000
-script 
 parent -1
 END

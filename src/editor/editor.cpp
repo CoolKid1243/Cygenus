@@ -251,6 +251,15 @@ static void add_primitive(const char* primitive) {
     selected_entity = scene_spawn_primitive(world, primitive);
 }
 
+// Small right-aligned remove button used by inspector component sections
+static bool component_remove_button(const char* id) {
+    char label[32];
+    snprintf(label, sizeof(label), "Remove##%s", id);
+    float w = ImGui::CalcTextSize("Remove").x + ImGui::GetStyle().FramePadding.x * 2;
+    ImGui::SetCursorPosX(ImGui::GetContentRegionMax().x - w);
+    return ImGui::SmallButton(label);
+}
+
 static void list_directory(const char* path, const char* prefix) {
     DIR* dir = opendir(path);
     if (!dir) return;
@@ -368,9 +377,13 @@ extern "C" void editor_render() {
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("Add")) {
-            if (ImGui::MenuItem("Cube")) add_primitive("primitive:cube");
-            if (ImGui::MenuItem("Plane")) add_primitive("primitive:plane");
-            if (ImGui::MenuItem("Sphere")) add_primitive("primitive:sphere");
+            if (ImGui::MenuItem("Cube")) add_primitive("cube");
+            if (ImGui::MenuItem("Plane")) add_primitive("plane");
+            if (ImGui::MenuItem("Sphere")) add_primitive("sphere");
+            if (ImGui::MenuItem("Empty Entity")) {
+                selected_entity = ecs_create_entity(world, "Entity");
+                ecs_add_component(world, selected_entity, COMPONENT_TRANSFORM);
+            }
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("Window")) {
@@ -492,7 +505,7 @@ extern "C" void editor_render() {
         ImGui::GetWindowDrawList()->AddImageRounded(
             (ImTextureID)(uintptr_t)tex_id,
             img_pos, ImVec2(img_pos.x + vp_size.x, img_pos.y + vp_size.y),
-            ImVec2(0,0), ImVec2(1,1), IM_COL32_WHITE, 8.0f);
+            ImVec2(0,1), ImVec2(1,0), IM_COL32_WHITE, 8.0f); // flip V: GL framebuffers are bottom-up
         ImGui::Dummy(vp_size); // reserve the space we just painted into
     }
     ImGui::End();
@@ -512,41 +525,86 @@ extern "C" void editor_render() {
             ecs_rename_entity(world, e, name_buf);
         }
 
-        TransformComponent* t = &world->transforms[e];
-        ImGui::SeparatorText("Transform");
-        float pos[3] = {t->position.x, t->position.y, t->position.z};
-        if (ImGui::DragFloat3("Position", pos, 0.05f, -100.0f, 100.0f, "%.2f")) {
-            t->position.x = pos[0]; t->position.y = pos[1]; t->position.z = pos[2];
-            t->dirty = 1;
-        }
-        float rot[3] = {t->rotation.x, t->rotation.y, t->rotation.z};
-        if (ImGui::DragFloat3("Rotation", rot, 0.5f, -360.0f, 360.0f, "%.1f")) {
-            t->rotation.x = rot[0]; t->rotation.y = rot[1]; t->rotation.z = rot[2];
-            t->dirty = 1;
-        }
-        float sca[3] = {t->scale.x, t->scale.y, t->scale.z};
-        if (ImGui::DragFloat3("Scale", sca, 0.05f, 0.01f, 10.0f, "%.2f")) {
-            t->scale.x = sca[0]; t->scale.y = sca[1]; t->scale.z = sca[2];
-            t->dirty = 1;
+        // Transform component
+        if (ecs_has_component(world, e, COMPONENT_TRANSFORM)) {
+            ImGui::SeparatorText("Transform");
+            if (component_remove_button("transform")) {
+                ecs_remove_component(world, e, COMPONENT_TRANSFORM);
+            } else {
+                TransformComponent* t = &world->transforms[e];
+                float pos[3] = {t->position.x, t->position.y, t->position.z};
+                if (ImGui::DragFloat3("Position", pos, 0.05f, -100.0f, 100.0f, "%.2f")) {
+                    t->position.x = pos[0]; t->position.y = pos[1]; t->position.z = pos[2];
+                    t->dirty = 1;
+                }
+                float rot[3] = {t->rotation.x, t->rotation.y, t->rotation.z};
+                if (ImGui::DragFloat3("Rotation", rot, 0.5f, -360.0f, 360.0f, "%.1f")) {
+                    t->rotation.x = rot[0]; t->rotation.y = rot[1]; t->rotation.z = rot[2];
+                    t->dirty = 1;
+                }
+                float sca[3] = {t->scale.x, t->scale.y, t->scale.z};
+                if (ImGui::DragFloat3("Scale", sca, 0.05f, 0.01f, 10.0f, "%.2f")) {
+                    t->scale.x = sca[0]; t->scale.y = sca[1]; t->scale.z = sca[2];
+                    t->dirty = 1;
+                }
+            }
         }
 
-        MeshComponent* m = &world->meshes[e];
-        ImGui::SeparatorText("Rendering");
-        char mesh_path[128];
-        strncpy(mesh_path, m->mesh_path, sizeof(mesh_path)-1);
-        mesh_path[sizeof(mesh_path)-1] = '\0';
-        if (ImGui::InputText("Mesh", mesh_path, sizeof(mesh_path))) {
-            strncpy(m->mesh_path, mesh_path, sizeof(m->mesh_path)-1);
+        // Mesh component
+        if (ecs_has_component(world, e, COMPONENT_MESH)) {
+            ImGui::SeparatorText("Mesh");
+            if (component_remove_button("mesh")) {
+                ecs_remove_component(world, e, COMPONENT_MESH);
+            } else {
+                MeshComponent* m = &world->meshes[e];
+                char mesh_path[128];
+                strncpy(mesh_path, m->mesh_path, sizeof(mesh_path)-1);
+                mesh_path[sizeof(mesh_path)-1] = '\0';
+                if (ImGui::InputText("Mesh", mesh_path, sizeof(mesh_path))) {
+                    strncpy(m->mesh_path, mesh_path, sizeof(m->mesh_path)-1);
+                }
+            }
         }
-        char tex_path[256];
-        strncpy(tex_path, m->texture_path, sizeof(tex_path)-1);
-        tex_path[sizeof(tex_path)-1] = '\0';
-        if (ImGui::InputText("Texture", tex_path, sizeof(tex_path))) {
-            strncpy(m->texture_path, tex_path, sizeof(m->texture_path)-1);
+
+        // Material component
+        if (ecs_has_component(world, e, COMPONENT_MATERIAL)) {
+            ImGui::SeparatorText("Material");
+            if (component_remove_button("material")) {
+                ecs_remove_component(world, e, COMPONENT_MATERIAL);
+            } else {
+                MaterialComponent* mat = &world->materials[e];
+                float color[3] = {mat->color[0], mat->color[1], mat->color[2]};
+                if (ImGui::ColorEdit3("Colour", color, 0)) {
+                    mat->color[0] = color[0]; mat->color[1] = color[1]; mat->color[2] = color[2];
+                }
+                char tex_path[256];
+                strncpy(tex_path, mat->texture_path, sizeof(tex_path)-1);
+                tex_path[sizeof(tex_path)-1] = '\0';
+                if (ImGui::InputText("Texture", tex_path, sizeof(tex_path))) {
+                    strncpy(mat->texture_path, tex_path, sizeof(mat->texture_path)-1);
+                }
+            }
         }
-        float tint[3] = {m->tint[0], m->tint[1], m->tint[2]};
-        if (ImGui::ColorEdit3("Tint", tint, 0)) {
-            m->tint[0] = tint[0]; m->tint[1] = tint[1]; m->tint[2] = tint[2];
+
+        // Add component button - lists the components the entity doesn't have yet
+        ImGui::Spacing();
+        if (ImGui::Button("Add Component", ImVec2(ImGui::GetContentRegionAvail().x, 30))) {
+            ImGui::OpenPopup("add_component_popup");
+        }
+        if (ImGui::BeginPopup("add_component_popup")) {
+            if (!ecs_has_component(world, e, COMPONENT_TRANSFORM) && ImGui::MenuItem("Transform")) {
+                ecs_add_component(world, e, COMPONENT_TRANSFORM);
+            }
+            if (!ecs_has_component(world, e, COMPONENT_MESH) && ImGui::MenuItem("Mesh")) {
+                ecs_add_component(world, e, COMPONENT_MESH);
+                if (!world->meshes[e].mesh_path[0]) {
+                    snprintf(world->meshes[e].mesh_path, sizeof(world->meshes[e].mesh_path), "primitive:cube");
+                }
+            }
+            if (!ecs_has_component(world, e, COMPONENT_MATERIAL) && ImGui::MenuItem("Material")) {
+                ecs_add_component(world, e, COMPONENT_MATERIAL);
+            }
+            ImGui::EndPopup();
         }
 
         ImGui::Spacing();

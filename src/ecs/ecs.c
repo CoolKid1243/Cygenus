@@ -33,6 +33,7 @@ Entity ecs_create_entity(EcsWorld* world, const char* name) {
         make_unique_name(world, (name && name[0]) ? name : "Entity", world->names[i], sizeof(world->names[i]), i);
         memset(&world->transforms[i], 0, sizeof(TransformComponent));
         memset(&world->meshes[i], 0, sizeof(MeshComponent));
+        memset(&world->materials[i], 0, sizeof(MaterialComponent));
         memset(&world->scripts[i], 0, sizeof(ScriptComponent));
         world->transforms[i].parent = ECS_INVALID_ENTITY;
         return i;
@@ -69,7 +70,18 @@ int ecs_entity_count(const EcsWorld* world) {
 
 void ecs_add_component(EcsWorld* world, Entity e, ComponentType type) {
     if (!ecs_is_alive(world, e)) return;
+    if (world->masks[e] & type) return;
     world->masks[e] |= type;
+    // Sensible defaults for freshly added components
+    if (type == COMPONENT_TRANSFORM) {
+        TransformComponent* t = &world->transforms[e];
+        if (t->scale.x == 0 && t->scale.y == 0 && t->scale.z == 0) t->scale = (Vec3){1, 1, 1};
+        t->dirty = 1;
+    } else if (type == COMPONENT_MATERIAL) {
+        MaterialComponent* m = &world->materials[e];
+        m->color[0] = m->color[1] = m->color[2] = 1.0f;
+        snprintf(m->texture_path, sizeof(m->texture_path), "none");
+    }
 }
 
 void ecs_remove_component(EcsWorld* world, Entity e, ComponentType type) {

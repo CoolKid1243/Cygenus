@@ -17,17 +17,11 @@ Entity scene_spawn_primitive(EcsWorld* world, const char* primitive) {
     if (e == ECS_INVALID_ENTITY) return e;
 
     ecs_add_component(world, e, COMPONENT_TRANSFORM);
-    TransformComponent* t = &world->transforms[e];
-    t->position = (Vec3){0, 0, 0};
-    t->rotation = (Vec3){0, 0, 0};
-    t->scale = (Vec3){1, 1, 1};
-    t->dirty = 1;
 
     ecs_add_component(world, e, COMPONENT_MESH);
-    MeshComponent* m = &world->meshes[e];
-    snprintf(m->mesh_path, sizeof(m->mesh_path), "primitive:%s", primitive);
-    snprintf(m->texture_path, sizeof(m->texture_path), "none");
-    m->tint[0] = 1.0f; m->tint[1] = 1.0f; m->tint[2] = 1.0f;
+    snprintf(world->meshes[e].mesh_path, sizeof(world->meshes[e].mesh_path), "primitive:%s", primitive);
+
+    ecs_add_component(world, e, COMPONENT_MATERIAL);
 
     return e;
 }
@@ -48,17 +42,27 @@ int scene_save(const EcsWorld* world, const char* filepath) {
     for (int i = 0; i < ECS_MAX_ENTITIES; i++) {
         if (!world->alive[i]) continue;
         const TransformComponent* t = &world->transforms[i];
-        const MeshComponent* m = &world->meshes[i];
-        const ScriptComponent* s = &world->scripts[i];
         fprintf(file, "ENTITY\n");
         fprintf(file, "name %s\n", world->names[i]);
-        fprintf(file, "position %f %f %f\n", t->position.x, t->position.y, t->position.z);
-        fprintf(file, "rotation %f %f %f\n", t->rotation.x, t->rotation.y, t->rotation.z);
-        fprintf(file, "scale %f %f %f\n", t->scale.x, t->scale.y, t->scale.z);
-        fprintf(file, "mesh %s\n", m->mesh_path[0] ? m->mesh_path : "none");
-        fprintf(file, "texture %s\n", m->texture_path[0] ? m->texture_path : "none");
-        fprintf(file, "tint %f %f %f\n", m->tint[0], m->tint[1], m->tint[2]);
-        fprintf(file, "script %s\n", s->path[0] ? s->path : "none");
+        // Only write lines for components the entity actually has
+        if (ecs_has_component(world, i, COMPONENT_TRANSFORM)) {
+            fprintf(file, "position %f %f %f\n", t->position.x, t->position.y, t->position.z);
+            fprintf(file, "rotation %f %f %f\n", t->rotation.x, t->rotation.y, t->rotation.z);
+            fprintf(file, "scale %f %f %f\n", t->scale.x, t->scale.y, t->scale.z);
+        }
+        if (ecs_has_component(world, i, COMPONENT_MESH)) {
+            const MeshComponent* m = &world->meshes[i];
+            fprintf(file, "mesh %s\n", m->mesh_path[0] ? m->mesh_path : "none");
+        }
+        if (ecs_has_component(world, i, COMPONENT_MATERIAL)) {
+            const MaterialComponent* mat = &world->materials[i];
+            fprintf(file, "texture %s\n", mat->texture_path[0] ? mat->texture_path : "none");
+            fprintf(file, "tint %f %f %f\n", mat->color[0], mat->color[1], mat->color[2]);
+        }
+        if (ecs_has_component(world, i, COMPONENT_SCRIPT)) {
+            const ScriptComponent* s = &world->scripts[i];
+            fprintf(file, "script %s\n", s->path[0] ? s->path : "none");
+        }
         fprintf(file, "parent %d\n", t->parent == ECS_INVALID_ENTITY ? -1 : save_index[t->parent]);
         fprintf(file, "END\n");
     }
@@ -92,30 +96,36 @@ int scene_load(EcsWorld* world, const char* filepath) {
         if (strncmp(line, "ENTITY", 6) == 0 || strncmp(line, "OBJECT", 6) == 0) {
             current = ecs_create_entity(world, "Entity");
             if (current == ECS_INVALID_ENTITY) break;
-            ecs_add_component(world, current, COMPONENT_TRANSFORM);
-            ecs_add_component(world, current, COMPONENT_MESH);
-            world->transforms[current].scale = (Vec3){1, 1, 1};
-            world->transforms[current].dirty = 1;
             loaded[count] = current;
             parents[count] = -1;
             count++;
         } else if (current != ECS_INVALID_ENTITY) {
             TransformComponent* t = &world->transforms[current];
             MeshComponent* m = &world->meshes[current];
+            // Each field line adds its component, so only saved components come back
             if (strncmp(line, "name ", 5) == 0) {
                 ecs_rename_entity(world, current, line + 5);
             } else if (strncmp(line, "position ", 9) == 0) {
+                ecs_add_component(world, current, COMPONENT_TRANSFORM);
                 sscanf(line + 9, "%f %f %f", &t->position.x, &t->position.y, &t->position.z);
             } else if (strncmp(line, "rotation ", 9) == 0) {
+                ecs_add_component(world, current, COMPONENT_TRANSFORM);
                 sscanf(line + 9, "%f %f %f", &t->rotation.x, &t->rotation.y, &t->rotation.z);
             } else if (strncmp(line, "scale ", 6) == 0) {
+                ecs_add_component(world, current, COMPONENT_TRANSFORM);
                 sscanf(line + 6, "%f %f %f", &t->scale.x, &t->scale.y, &t->scale.z);
             } else if (strncmp(line, "mesh ", 5) == 0) {
-                snprintf(m->mesh_path, sizeof(m->mesh_path), "%.127s", line + 5);
+                if (strcmp(line + 5, "none") != 0) {
+                    ecs_add_component(world, current, COMPONENT_MESH);
+                    snprintf(m->mesh_path, sizeof(m->mesh_path), "%.127s", line + 5);
+                }
             } else if (strncmp(line, "texture ", 8) == 0) {
-                snprintf(m->texture_path, sizeof(m->texture_path), "%.255s", line + 8);
+                ecs_add_component(world, current, COMPONENT_MATERIAL);
+                snprintf(world->materials[current].texture_path, sizeof(world->materials[current].texture_path), "%.255s", line + 8);
             } else if (strncmp(line, "tint ", 5) == 0) {
-                sscanf(line + 5, "%f %f %f", &m->tint[0], &m->tint[1], &m->tint[2]);
+                ecs_add_component(world, current, COMPONENT_MATERIAL);
+                MaterialComponent* mat = &world->materials[current];
+                sscanf(line + 5, "%f %f %f", &mat->color[0], &mat->color[1], &mat->color[2]);
             } else if (strncmp(line, "script ", 7) == 0) {
                 if (line[7] && strcmp(line + 7, "none") != 0) {
                     snprintf(world->scripts[current].path, sizeof(world->scripts[current].path), "%.255s", line + 7);

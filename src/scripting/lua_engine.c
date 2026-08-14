@@ -125,13 +125,14 @@ static int l_set_scale(lua_State* L) {
     return 0;
 }
 
-// engine.set_tint(id, r, g, b)
+// engine.set_tint(id, r, g, b) - adds a material component if missing
 static int l_set_tint(lua_State* L) {
     Entity e = check_entity(L, 1);
-    MeshComponent* m = &bound_world->meshes[e];
-    m->tint[0] = (float)luaL_checknumber(L, 2);
-    m->tint[1] = (float)luaL_checknumber(L, 3);
-    m->tint[2] = (float)luaL_checknumber(L, 4);
+    ecs_add_component(bound_world, e, COMPONENT_MATERIAL);
+    MaterialComponent* m = &bound_world->materials[e];
+    m->color[0] = (float)luaL_checknumber(L, 2);
+    m->color[1] = (float)luaL_checknumber(L, 3);
+    m->color[2] = (float)luaL_checknumber(L, 4);
     return 0;
 }
 
