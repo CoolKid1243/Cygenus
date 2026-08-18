@@ -1,0 +1,32 @@
+# Build directories
+build/
+output/
+*.o
+*.a
+*.so
+*.dylib
+*.dll
+*.exe
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Conan
+conanbuild.sh
+conanrun.sh
+CMakeUserPresets.json
+
+# ImGui.ini (editor layout)
+imgui.ini
+
+# Game host copied to project
+projects/*/game_host
+projects/*/game_host.exe

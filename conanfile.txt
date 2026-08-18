@@ -1,0 +1,12 @@
+[requires]
+glfw/3.3.8
+glew/2.2.0
+opengl/system
+lua/5.4.6
+
+[generators]
+CMakeDeps
+CMakeToolchain
+
+[layout]
+cmake_layout
