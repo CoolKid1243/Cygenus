@@ -9,6 +9,10 @@
 #include "scripting/script_system.h"
 #include "editor/editor.h"
 #include <stdio.h>
+#include <math.h>
+
+// External ECS function
+extern Entity ecs_get_display_camera(const EcsWorld* world, int tag);
 
 // Change this to switch projects
 #define PROJECT_ROOT "projects/sample_project"
@@ -27,6 +31,42 @@ static void update_camera(Camera* camera) {
     engine_input_get_front(&fx, &fy, &fz);
     camera_set_position(camera, x, y, z);
     camera_set_target(camera, x + fx, y + fy, z + fz);
+    camera_update(camera);
+}
+
+// Builds a camera from the main camera entity in the scene
+static void build_game_camera(Camera* camera, EcsWorld* world, Entity main_camera_entity) {
+    if (!ecs_is_alive(world, main_camera_entity)) return;
+    
+    TransformComponent* transform = &world->transforms[main_camera_entity];
+    CameraComponent* cam_comp = &world->cameras[main_camera_entity];
+    
+    // Set camera position from transform
+    camera_set_position(camera, transform->position.x, transform->position.y, transform->position.z);
+    
+    // Calculate forward direction from rotation (Euler angles)
+    float yaw_rad = transform->rotation.y * 3.14159265358979323846f / 180.0f;
+    float pitch_rad = transform->rotation.x * 3.14159265358979323846f / 180.0f;
+    
+    Vec3 front;
+    front.x = cosf(yaw_rad) * cosf(pitch_rad);
+    front.y = sinf(pitch_rad);
+    front.z = sinf(yaw_rad) * cosf(pitch_rad);
+    
+    // Normalize front vector
+    float len = sqrtf(front.x * front.x + front.y * front.y + front.z * front.z);
+    if (len > 0.0001f) {
+        front.x /= len;
+        front.y /= len;
+        front.z /= len;
+    }
+    
+    // Set target to be in front of the camera
+    camera_set_target(camera, 
+        transform->position.x + front.x,
+        transform->position.y + front.y,
+        transform->position.z + front.z);
+    
     camera_update(camera);
 }
 
@@ -94,9 +134,13 @@ int main() {
 
         editor_new_frame();
 
+        // Update camera matrices for gizmos
+        editor_set_camera_matrices(camera_get_view(&camera), camera_get_projection(&camera));
+
         render_system_sync(&world);
         ecs_update_transforms(&world);
 
+        // Render to editor viewport (always active)
         RHIFramebuffer* fb = editor_get_framebuffer();
         if (fb) {
             rhi_framebuffer_bind(fb);
@@ -105,6 +149,31 @@ int main() {
             rhi_shader_set_mat4(shader, "uProjection", camera_get_projection(&camera));
             render_system_draw(&world);
             rhi_framebuffer_unbind();
+        }
+
+        // Render to game window 
+        RHIFramebuffer* game_fb = editor_get_game_framebuffer();
+        if (game_fb) {
+            int game_fb_width, game_fb_height;
+            editor_get_game_framebuffer_size(&game_fb_width, &game_fb_height);
+            
+            Entity main_camera = ecs_get_display_camera(&world, 1);
+            
+            if (ecs_is_alive(&world, main_camera)) {
+                Camera game_camera;
+                CameraComponent* cam_comp = &world.cameras[main_camera];
+                camera_init(&game_camera, cam_comp->fov, 
+                    (float)game_fb_width / (float)game_fb_height,
+                    cam_comp->near_plane, cam_comp->far_plane);
+                build_game_camera(&game_camera, &world, main_camera);
+                
+                rhi_framebuffer_bind(game_fb);
+                rhi_clear(0.1f, 0.1f, 0.15f, 1.0f); // Darker background for game view
+                rhi_shader_set_mat4(shader, "uView", camera_get_view(&game_camera));
+                rhi_shader_set_mat4(shader, "uProjection", camera_get_projection(&game_camera));
+                render_system_draw(&world);
+                rhi_framebuffer_unbind();
+            }
         }
 
         editor_render();

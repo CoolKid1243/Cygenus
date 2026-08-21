@@ -1,5 +1,6 @@
 #include "engine_input.h"
 #include "lua_input.h"
+#include "../editor/editor.h"
 #include <lua.h>
 #include <lauxlib.h>
 #include <lualib.h>
@@ -8,12 +9,21 @@
 // Engine input owns its own Lua state, fully separate from game_input's.
 static lua_State* L = NULL;
 
+static int l_is_mouse_over_viewport(lua_State* L) {
+    lua_pushboolean(L, engine_input_is_mouse_over_viewport());
+    return 1;
+}
+
 void engine_input_init(PlatformWindow* window) {
     L = luaL_newstate();
     luaL_openlibs(L);
 
     lua_input_set_window(window);
     lua_input_register(L);
+
+    // Register custom engine functions
+    lua_pushcfunction(L, l_is_mouse_over_viewport);
+    lua_setglobal(L, "is_mouse_over_viewport");
 
     if (luaL_dofile(L, "src/input/engine_input.lua") != LUA_OK) {
         printf("Engine input script error: %s\n", lua_tostring(L, -1));
@@ -63,4 +73,8 @@ void engine_input_shutdown(void) {
         lua_close(L);
         L = NULL;
     }
+}
+
+int engine_input_is_mouse_over_viewport(void) {
+    return editor_is_mouse_over_viewport();
 }

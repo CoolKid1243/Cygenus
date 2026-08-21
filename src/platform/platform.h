@@ -28,6 +28,7 @@ int platform_key_released(PlatformWindow* window, int key);
 // Mouse
 void platform_get_mouse_position(PlatformWindow* window, double* x, double* y);
 int platform_mouse_button_pressed(PlatformWindow* window, int button);
+int platform_mouse_button_released(PlatformWindow* window, int button);
 void platform_set_mouse_locked(PlatformWindow* window, int locked);
 
 // Time

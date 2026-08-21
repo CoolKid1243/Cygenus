@@ -1,10 +1,13 @@
 #include "editor.h"
 #include "../scene/scene.h"
 #include "../scripting/script_system.h"
+#include "../ecs/ecs.h"
+#include "../math/math3d.h"
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <backends/imgui_impl_glfw.h>
 #include <backends/imgui_impl_opengl3.h>
+#include <ImGuizmo.h>
 #include <GLFW/glfw3.h>
 #include "../core/project.h"
 #include "../renderer/rhi.h"
@@ -23,6 +26,13 @@
 #include <dirent.h>
 #endif
 
+// External ECS functions
+extern "C" Entity ecs_get_display_camera(const EcsWorld* world, int tag);
+extern "C" void ecs_set_camera_display_tag(EcsWorld* world, Entity e, int tag);
+
+// External scene functions
+extern "C" Entity scene_spawn_primitive(EcsWorld* world, const char* primitive);
+
 static EcsWorld* world = nullptr;
 static Entity selected_entity = ECS_INVALID_ENTITY;
 static GLFWwindow* glfw_window = nullptr;
@@ -38,6 +48,26 @@ static bool show_demo_window = false;
 
 static RHIFramebuffer* viewport_fb = NULL;
 static int fb_width = 0, fb_height = 0;
+
+// Game window framebuffer (always visible now)
+static RHIFramebuffer* game_fb = NULL;
+static int game_fb_width = 0, game_fb_height = 0;
+
+// Gizmo state
+static bool gizmo_enabled = true;
+static ImGuizmo::OPERATION current_gizmo_operation = ImGuizmo::TRANSLATE; // TRANSLATE, ROTATE, SCALE
+static bool gizmo_using = false;
+
+// Camera matrices for gizmos
+static float camera_view_matrix[16] = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};
+static float camera_projection_matrix[16] = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};
+
+// Key state tracking for hotkeys
+static bool key_q_pressed = false;
+static bool key_w_pressed = false;
+static bool key_e_pressed = false;
+static bool key_r_pressed = false;
+static bool key_t_pressed = false;
 
 static bool first_frame = true;
 
@@ -220,6 +250,7 @@ static void apply_layout_preset(ImGuiID dockspace_id, int preset) {
             ImGui::DockBuilderDockWindow("Project", bottom);
             ImGui::DockBuilderDockWindow("Console", bottom);
             ImGui::DockBuilderDockWindow("Viewport", main_id);
+            ImGui::DockBuilderDockWindow("Game", main_id); // Game window in same area as viewport
             break;
         }
         case LAYOUT_WIDE_VIEWPORT: {
@@ -232,6 +263,7 @@ static void apply_layout_preset(ImGuiID dockspace_id, int preset) {
             ImGui::DockBuilderDockWindow("Project", bottom);
             ImGui::DockBuilderDockWindow("Console", bottom);
             ImGui::DockBuilderDockWindow("Viewport", main_id);
+            ImGui::DockBuilderDockWindow("Game", main_id);
             break;
         }
         case LAYOUT_TWO_COLUMN: {
@@ -244,6 +276,7 @@ static void apply_layout_preset(ImGuiID dockspace_id, int preset) {
             ImGui::DockBuilderDockWindow("Inspector", left_bottom);
             ImGui::DockBuilderDockWindow("Console", left_bottom);
             ImGui::DockBuilderDockWindow("Viewport", main_id);
+            ImGui::DockBuilderDockWindow("Game", main_id);
             break;
         }
     }
@@ -256,6 +289,13 @@ static void apply_layout_preset(ImGuiID dockspace_id, int preset) {
 static void add_primitive(const char* primitive) {
     if (!world) return;
     selected_entity = scene_spawn_primitive(world, primitive);
+    
+    // Auto-set camera as display camera if it's the first one
+    if (strcmp(primitive, "camera") == 0) {
+        if (ecs_get_display_camera(world, 1) == ECS_INVALID_ENTITY) {
+            ecs_set_camera_display_tag(world, selected_entity, 1);
+        }
+    }
 }
 
 // Small right-aligned remove button used by inspector component sections
@@ -339,6 +379,26 @@ extern "C" void editor_new_frame() {
     ImGui_ImplOpenGL3_NewFrame();
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
+    
+    // Handle gizmo hotkeys (Unity-style) - only on key press, not hold
+    // Note: Q is used for camera movement down, so we use different keys for gizmos
+    bool w_current = ImGui::IsKeyDown(ImGuiKey_W);
+    bool e_current = ImGui::IsKeyDown(ImGuiKey_E);
+    bool r_current = ImGui::IsKeyDown(ImGuiKey_R);
+    bool t_current = ImGui::IsKeyDown(ImGuiKey_T);
+    bool s_current = ImGui::IsKeyDown(ImGuiKey_S); // Use S for scale instead of Q
+    
+    if (w_current && !key_w_pressed) current_gizmo_operation = ImGuizmo::TRANSLATE;
+    if (e_current && !key_e_pressed) current_gizmo_operation = ImGuizmo::ROTATE;
+    if (r_current && !key_r_pressed) current_gizmo_operation = ImGuizmo::SCALE;
+    if (t_current && !key_t_pressed) current_gizmo_operation = ImGuizmo::TRANSLATE;
+    if (s_current && !key_s_pressed) current_gizmo_operation = ImGuizmo::SCALE;
+    
+    key_w_pressed = w_current;
+    key_e_pressed = e_current;
+    key_r_pressed = r_current;
+    key_t_pressed = t_current;
+    key_s_pressed = s_current;
 }
 
 extern "C" void editor_get_viewport_rect(float* x, float* y, float* w, float* h) {
@@ -356,6 +416,15 @@ static void toggle_play() {
 
 extern "C" RHIFramebuffer* editor_get_framebuffer() {
     return viewport_fb;
+}
+
+extern "C" RHIFramebuffer* editor_get_game_framebuffer() {
+    return game_fb;
+}
+
+extern "C" void editor_get_game_framebuffer_size(int* width, int* height) {
+    *width = game_fb_width;
+    *height = game_fb_height;
 }
 
 extern "C" void editor_render() {
@@ -387,6 +456,7 @@ extern "C" void editor_render() {
             if (ImGui::MenuItem("Cube")) add_primitive("cube");
             if (ImGui::MenuItem("Plane")) add_primitive("plane");
             if (ImGui::MenuItem("Sphere")) add_primitive("sphere");
+            if (ImGui::MenuItem("Camera")) add_primitive("camera");
             if (ImGui::MenuItem("Empty Entity")) {
                 selected_entity = ecs_create_entity(world, "Entity");
                 ecs_add_component(world, selected_entity, COMPONENT_TRANSFORM);
@@ -419,7 +489,7 @@ extern "C" void editor_render() {
         // closer to BeamNG/Unreal's understated toolbar buttons than a loud game-UI green.
         {
             bool playing = script_system_is_playing();
-            const char* run_label = playing ? "\xe2\x96\xa0  Stop" : "\xe2\x96\xb6  Run"; // ■  Stop / ▶  Run
+            const char* run_label = playing ? "\xe2\x96\xa0  Stop" : "\xe2\x96\xb6  Run";
             float row_height = ImGui::GetFrameHeight(); // matches the menu bar row exactly, avoids clipping
             ImVec2 run_size = ImVec2(84, row_height);
             float bar_width = ImGui::GetWindowWidth();
@@ -471,13 +541,97 @@ extern "C" void editor_render() {
     // ---- Windows ----
     ImGui::Begin("Hierarchy");
     draw_panel_grid();
+    
     for (int i = 0; i < ECS_MAX_ENTITIES; i++) {
         if (!ecs_is_alive(world, i)) continue;
         char label[96];
         snprintf(label, sizeof(label), "%s##%d", world->names[i], i);
-        if (ImGui::Selectable(label, (selected_entity == i), 0, ImVec2(0,0))) {
+        
+        // Check if this item is right-clicked
+        bool is_selected = (selected_entity == i);
+        if (ImGui::Selectable(label, is_selected, 0, ImVec2(0,0))) {
             selected_entity = i;
         }
+        
+        // Right-click context menu for hierarchy items
+        if (ImGui::BeginPopupContextItem(label)) {
+            selected_entity = i; // Select the right-clicked entity
+            if (ImGui::BeginMenu("Add Component")) {
+                if (!ecs_has_component(world, i, COMPONENT_TRANSFORM) && ImGui::MenuItem("Transform")) {
+                    ecs_add_component(world, i, COMPONENT_TRANSFORM);
+                }
+                if (!ecs_has_component(world, i, COMPONENT_MESH) && ImGui::MenuItem("Mesh")) {
+                    ecs_add_component(world, i, COMPONENT_MESH);
+                    if (!world->meshes[i].mesh_path[0]) {
+                        snprintf(world->meshes[i].mesh_path, sizeof(world->meshes[i].mesh_path), "primitive:cube");
+                    }
+                }
+                if (!ecs_has_component(world, i, COMPONENT_MATERIAL) && ImGui::MenuItem("Material")) {
+                    ecs_add_component(world, i, COMPONENT_MATERIAL);
+                }
+                if (!ecs_has_component(world, i, COMPONENT_CAMERA) && ImGui::MenuItem("Camera")) {
+                    ecs_add_component(world, i, COMPONENT_CAMERA);
+                    if (ecs_get_display_camera(world, 1) == ECS_INVALID_ENTITY) {
+                        ecs_set_camera_display_tag(world, i, 1);
+                    }
+                }
+                ImGui::EndMenu();
+            }
+            if (ImGui::MenuItem("Duplicate")) {
+                Entity new_entity = ecs_create_entity(world, world->names[i]);
+                // Copy components
+                if (ecs_has_component(world, i, COMPONENT_TRANSFORM)) {
+                    ecs_add_component(world, new_entity, COMPONENT_TRANSFORM);
+                    world->transforms[new_entity] = world->transforms[i];
+                }
+                if (ecs_has_component(world, i, COMPONENT_MESH)) {
+                    ecs_add_component(world, new_entity, COMPONENT_MESH);
+                    world->meshes[new_entity] = world->meshes[i];
+                }
+                if (ecs_has_component(world, i, COMPONENT_MATERIAL)) {
+                    ecs_add_component(world, new_entity, COMPONENT_MATERIAL);
+                    world->materials[new_entity] = world->materials[i];
+                }
+                if (ecs_has_component(world, i, COMPONENT_CAMERA)) {
+                    ecs_add_component(world, new_entity, COMPONENT_CAMERA);
+                    world->cameras[new_entity] = world->cameras[i];
+                }
+                selected_entity = new_entity;
+            }
+            if (ImGui::MenuItem("Delete")) {
+                ecs_destroy_entity(world, i);
+                selected_entity = ECS_INVALID_ENTITY;
+            }
+            ImGui::EndPopup();
+        }
+    }
+    
+    // Right-click context menu for empty hierarchy space
+    if (ImGui::BeginPopupContextWindow("HierarchyContext")) {
+        if (ImGui::BeginMenu("Create")) {
+            if (ImGui::MenuItem("Empty Entity")) {
+                selected_entity = ecs_create_entity(world, "Entity");
+                ecs_add_component(world, selected_entity, COMPONENT_TRANSFORM);
+            }
+            if (ImGui::MenuItem("Cube")) {
+                selected_entity = scene_spawn_primitive(world, "cube");
+            }
+            if (ImGui::MenuItem("Sphere")) {
+                selected_entity = scene_spawn_primitive(world, "sphere");
+            }
+            if (ImGui::MenuItem("Plane")) {
+                selected_entity = scene_spawn_primitive(world, "plane");
+            }
+            if (ImGui::MenuItem("Camera")) {
+                selected_entity = scene_spawn_primitive(world, "camera");
+                // Auto-set as main camera if it's the first one
+                if (ecs_get_display_camera(world, 1) == ECS_INVALID_ENTITY) {
+                    ecs_set_camera_display_tag(world, selected_entity, 1);
+                }
+            }
+            ImGui::EndMenu();
+        }
+        ImGui::EndPopup();
     }
     ImGui::End();
 
@@ -514,6 +668,157 @@ extern "C" void editor_render() {
             img_pos, ImVec2(img_pos.x + vp_size.x, img_pos.y + vp_size.y),
             ImVec2(0,1), ImVec2(1,0), IM_COL32_WHITE, 8.0f); // flip V: GL framebuffers are bottom-up
         ImGui::Dummy(vp_size); // reserve the space we just painted into
+        
+        // Render gizmo for selected entity if enabled and has transform
+        if (gizmo_enabled && ecs_is_alive(world, selected_entity) && 
+            ecs_has_component(world, selected_entity, COMPONENT_TRANSFORM)) {
+            
+            // Set up ImGuizmo
+            ImGuizmo::SetDrawlist();
+            ImGuizmo::SetRect(img_pos.x, img_pos.y, vp_size.x, vp_size.y);
+            
+            // Get entity transform matrix
+            TransformComponent* t = &world->transforms[selected_entity];
+            float model_matrix[16];
+            mat4_compose_trs(model_matrix, t->position, t->rotation, t->scale);
+            
+            // Store original matrix for delta calculation
+            float original_matrix[16];
+            memcpy(original_matrix, model_matrix, sizeof(original_matrix));
+            
+            // Manipulate the gizmo
+            gizmo_using = ImGuizmo::Manipulate(
+                camera_view_matrix, 
+                camera_projection_matrix, 
+                current_gizmo_operation, 
+                ImGuizmo::LOCAL, 
+                model_matrix
+            );
+            
+            // Apply the modified transform back to the entity
+            if (gizmo_using) {
+                // Use ImGuizmo's decomposition to extract proper TRS components
+                float translation[3], rotation[3], scale[3];
+                ImGuizmo::DecomposeMatrixToComponents(model_matrix, translation, rotation, scale);
+                
+                // Update the entity's transform
+                t->position.x = translation[0];
+                t->position.y = translation[1];
+                t->position.z = translation[2];
+                
+                t->rotation.x = rotation[0];
+                t->rotation.y = rotation[1];
+                t->rotation.z = rotation[2];
+                
+                t->scale.x = scale[0];
+                t->scale.y = scale[1];
+                t->scale.z = scale[2];
+                
+                t->dirty = 1;
+            }
+        }
+        
+        // Gizmo toggle button (top left, like Unity)
+        ImVec2 button_pos = ImVec2(img_pos.x + 10, img_pos.y + 10);
+        ImGui::SetCursorScreenPos(button_pos);
+        
+        const char* gizmo_modes[] = {"None", "Translate", "Rotate", "Scale"};
+        int mode_index = 0;
+        if (current_gizmo_operation == ImGuizmo::TRANSLATE) mode_index = 1;
+        else if (current_gizmo_operation == ImGuizmo::ROTATE) mode_index = 2;
+        else if (current_gizmo_operation == ImGuizmo::SCALE) mode_index = 3;
+        
+        if (ImGui::Button(gizmo_modes[mode_index])) {
+            // Cycle through modes: None -> Translate -> Rotate -> Scale -> None
+            if (current_gizmo_operation == ImGuizmo::TRANSLATE) current_gizmo_operation = ImGuizmo::ROTATE;
+            else if (current_gizmo_operation == ImGuizmo::ROTATE) current_gizmo_operation = ImGuizmo::SCALE;
+            else if (current_gizmo_operation == ImGuizmo::SCALE) current_gizmo_operation = ImGuizmo::TRANSLATE; // Skip None for now
+        }
+        
+        // 3D gyroscope rotation indicator (top right, like Unity) - disabled for now
+        // float view_gyro[16];
+        // memcpy(view_gyro, camera_view_matrix, sizeof(view_gyro));
+        // ImGuizmo::ViewManipulate(
+        //     view_gyro, 
+        //     1.0f, // length
+        //     ImVec2(img_pos.x + vp_size.x - 128, img_pos.y), 
+        //     ImVec2(128, 128),
+        //     0x80808080 // semi-transparent gray background
+        // );
+    }
+    ImGui::End();
+    ImGui::PopStyleVar();
+
+    // Game Window (always visible, shows real-time camera preview)
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+    ImGui::Begin("Game");
+    
+    ImVec2 game_size = ImGui::GetContentRegionAvail();
+    int new_game_fb_w = (int)game_size.x;
+    int new_game_fb_h = (int)game_size.y;
+    if (new_game_fb_w < 1) new_game_fb_w = 1;
+    if (new_game_fb_h < 1) new_game_fb_h = 1;
+    
+    if (!game_fb || new_game_fb_w != game_fb_width || new_game_fb_h != game_fb_height) {
+        if (game_fb) {
+            rhi_framebuffer_destroy(game_fb);
+            game_fb = NULL;
+        }
+        game_fb = rhi_framebuffer_create(new_game_fb_w, new_game_fb_h);
+        game_fb_width = new_game_fb_w;
+        game_fb_height = new_game_fb_h;
+    }
+
+    Entity main_camera = ecs_get_display_camera(world, 1);
+    bool has_camera = ecs_is_alive(world, main_camera);
+
+    if (has_camera) {
+        // Always show camera view (real-time preview)
+        if (game_fb) {
+            unsigned int tex_id = rhi_framebuffer_get_texture_id(game_fb);
+            ImVec2 img_pos = ImGui::GetCursorScreenPos();
+            ImGui::GetWindowDrawList()->AddImageRounded(
+                (ImTextureID)(uintptr_t)tex_id,
+                img_pos, ImVec2(img_pos.x + game_size.x, img_pos.y + game_size.y),
+                ImVec2(0,1), ImVec2(1,0), IM_COL32_WHITE, 8.0f);
+            ImGui::Dummy(game_size);
+            
+            // Show mode indicator overlay
+            bool is_playing = script_system_is_playing();
+            ImVec2 overlay_pos = ImVec2(img_pos.x + 10, img_pos.y + 10);
+            ImGui::SetCursorScreenPos(overlay_pos);
+            if (is_playing) {
+                ImGui::TextColored(ImVec4(0.2f, 0.8f, 0.2f, 1.0f), "● PLAYING");
+            } else {
+                ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "○ EDIT MODE");
+            }
+        }
+    } else {
+        // Show "No Camera" message
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(20, 20));
+        ImVec2 window_pos = ImGui::GetWindowPos();
+        ImVec2 window_size = ImGui::GetWindowSize();
+        ImVec2 center_pos = ImVec2(
+            window_pos.x + window_size.x * 0.5f,
+            window_pos.y + window_size.y * 0.5f
+        );
+        
+        ImVec2 text_size = ImGui::CalcTextSize("No Camera in Scene");
+        ImVec2 start_pos = ImVec2(
+            center_pos.x - text_size.x * 0.5f,
+            center_pos.y - text_size.y * 0.5f
+        );
+        ImGui::SetCursorScreenPos(start_pos);
+        
+        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "No Camera in Scene");
+        start_pos.y += text_size.y + 10;
+        ImGui::SetCursorScreenPos(start_pos);
+        ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "Add a Camera component to an entity");
+        start_pos.y += text_size.y + 10;
+        ImGui::SetCursorScreenPos(start_pos);
+        ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "and set it as Display Camera (Tag 1)");
+        
+        ImGui::PopStyleVar();
     }
     ImGui::End();
     ImGui::PopStyleVar();
@@ -593,6 +898,42 @@ extern "C" void editor_render() {
             }
         }
 
+        // Camera component
+        if (ecs_has_component(world, e, COMPONENT_CAMERA)) {
+            ImGui::SeparatorText("Camera");
+            if (component_remove_button("camera")) {
+                ecs_remove_component(world, e, COMPONENT_CAMERA);
+            } else {
+                CameraComponent* cam = &world->cameras[e];
+                
+                // Display tag dropdown
+                const char* tag_items[] = {"None", "Display 1", "Display 2", "Display 3", "Display 4", "Display 5"};
+                int current_tag = cam->display_tag;
+                if (current_tag < 0) current_tag = 0;
+                if (current_tag > 5) current_tag = 5;
+                
+                if (ImGui::Combo("Display Tag", &current_tag, tag_items, 6)) {
+                    ecs_set_camera_display_tag(world, e, current_tag);
+                }
+                
+                // FOV slider
+                float fov = cam->fov;
+                if (ImGui::SliderFloat("FOV", &fov, 30.0f, 120.0f, "%.1f")) {
+                    cam->fov = fov;
+                }
+                
+                // Near/Far planes
+                float near_p = cam->near_plane;
+                float far_p = cam->far_plane;
+                if (ImGui::DragFloat("Near Plane", &near_p, 0.01f, 0.01f, 10.0f, "%.2f")) {
+                    cam->near_plane = near_p;
+                }
+                if (ImGui::DragFloat("Far Plane", &far_p, 1.0f, 10.0f, 1000.0f, "%.1f")) {
+                    cam->far_plane = far_p;
+                }
+            }
+        }
+
         // Add component button - lists the components the entity doesn't have yet
         ImGui::Spacing();
         if (ImGui::Button("Add Component", ImVec2(ImGui::GetContentRegionAvail().x, 30))) {
@@ -610,6 +951,13 @@ extern "C" void editor_render() {
             }
             if (!ecs_has_component(world, e, COMPONENT_MATERIAL) && ImGui::MenuItem("Material")) {
                 ecs_add_component(world, e, COMPONENT_MATERIAL);
+            }
+            if (!ecs_has_component(world, e, COMPONENT_CAMERA) && ImGui::MenuItem("Camera")) {
+                ecs_add_component(world, e, COMPONENT_CAMERA);
+                // Automatically set as display camera if it's the first one
+                if (ecs_get_display_camera(world, 1) == ECS_INVALID_ENTITY) {
+                    ecs_set_camera_display_tag(world, e, 1);
+                }
             }
             ImGui::EndPopup();
         }
@@ -667,4 +1015,14 @@ extern "C" void editor_render() {
 
 extern "C" void editor_set_console_text(const char* text) {
     snprintf(console_text, sizeof(console_text), "%s", text);
+}
+
+extern "C" void editor_set_camera_matrices(const float* view, const float* projection) {
+    memcpy(camera_view_matrix, view, sizeof(camera_view_matrix));
+    memcpy(camera_projection_matrix, projection, sizeof(camera_projection_matrix));
+}
+
+extern "C" void editor_get_camera_matrices(float* view, float* projection) {
+    memcpy(view, camera_view_matrix, sizeof(camera_view_matrix));
+    memcpy(projection, camera_projection_matrix, sizeof(camera_projection_matrix));
 }

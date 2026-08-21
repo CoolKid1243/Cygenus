@@ -11,5 +11,6 @@ void engine_input_get_position(float* x, float* y, float* z);
 void engine_input_get_front(float* x, float* y, float* z);
 
 int engine_input_editor_toggle_pressed(void);
+int engine_input_is_mouse_over_viewport(void);
 
 #endif // ENGINE_INPUT_H

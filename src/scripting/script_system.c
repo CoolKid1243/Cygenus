@@ -2,6 +2,7 @@
 #include "lua_engine.h"
 #include "../input/lua_input.h"
 #include "../core/project.h"
+#include "../ecs/ecs.h"
 #include <lua.h>
 #include <lauxlib.h>
 #include <lualib.h>
@@ -20,6 +21,10 @@
 
 #define MAX_SCRIPTS 64
 
+// External ECS functions (defined in ecs.c)
+extern void ecs_save_state(EcsWorld* world, EcsWorld* backup);
+extern void ecs_restore_state(EcsWorld* world, const EcsWorld* backup);
+
 // Each script gets its own Lua state so their globals don't clash
 typedef struct {
     lua_State* L;
@@ -31,11 +36,14 @@ static LoadedScript scripts[MAX_SCRIPTS];
 static int script_count = 0;
 static int playing = 0;
 static PlatformWindow* bound_window = NULL;
+static EcsWorld* world_ref = NULL;
+static EcsWorld world_backup;
 
 void script_system_init(PlatformWindow* window, EcsWorld* world) {
     bound_window = window;
     lua_input_set_window(window);
     lua_engine_set_world(world);
+    world_ref = world;
     script_count = 0;
     playing = 0;
 }
@@ -76,7 +84,7 @@ static void load_script(const char* path) {
     }
 
     script_count++;
-    printf("Loaded script: %s\n", path);
+    // printf("Loaded script: %s\n", path);
 }
 
 // Walks a directory tree and loads every .lua file it finds
@@ -112,6 +120,11 @@ void script_system_set_playing(int should_play) {
     if (should_play == playing) return;
     playing = should_play;
     if (playing) {
+        // Save the current world state before entering play mode
+        if (world_ref) {
+            ecs_save_state(world_ref, &world_backup);
+        }
+        
         // Fresh load every play so scripts always start from a clean state
         unload_all_scripts();
         char root[256];
@@ -119,10 +132,14 @@ void script_system_set_playing(int should_play) {
         size_t len = strlen(root);
         if (len > 0 && root[len - 1] == '/') root[len - 1] = '\0';
         scan_for_scripts(root);
-        printf("Play: %d script(s) running\n", script_count);
+        // printf("Play: %d script(s) running\n", script_count);
     } else {
         unload_all_scripts();
-        printf("Stopped\n");
+        // Restore the world state when stopping play mode
+        if (world_ref) {
+            ecs_restore_state(world_ref, &world_backup);
+        }
+        // printf("Stopped\n");
     }
 }
 
@@ -147,4 +164,8 @@ void script_system_update(float dt) {
 void script_system_shutdown(void) {
     unload_all_scripts();
     playing = 0;
+}
+
+void script_system_set_world(EcsWorld* world) {
+    world_ref = world;
 }

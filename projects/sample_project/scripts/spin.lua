@@ -1,11 +1,6 @@
--- Example script: spins the cube and makes some entities when play starts.
--- Scripts can live in ANY folder inside your project - the engine finds
--- every .lua file automatically when you press Run.
-
-local cube = nil
-
 function start()
     cube = engine.find_entity("Cube")
+    camera = engine.find_entity("Camera")
 
     -- Spawned entities get unique names like Unity: Sphere, Sphere (1)...
     local s = engine.create_sphere()
@@ -21,6 +16,11 @@ function update(dt)
     if cube then
         local rx, ry, rz = engine.get_rotation(cube)
         engine.set_rotation(cube, rx, ry + 45 * dt, rz)
+    end
+
+    if camera then
+        local rx, ry, rz = engine.get_rotation(camera)
+        engine.set_rotation(camera, rx, ry + 45 * dt, rz)
     end
 
     if input.key_pressed("SPACE") then

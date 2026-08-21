@@ -18,6 +18,9 @@ find_package(lua REQUIRED)
 set(IMGUI_DIR ${CMAKE_SOURCE_DIR}/third_party/imgui)
 set(IMGUI_BACKENDS_DIR ${IMGUI_DIR}/backends)
 
+# --- ImGuizmo (local) ---
+set(IMGUIMO_DIR ${CMAKE_SOURCE_DIR}/third_party/ImGuizmo)
+
 # --- ENGINE SOURCES (for main executable) ---
 file(GLOB_RECURSE ENGINE_SOURCES "src/*.c" "src/*.cpp")
 
@@ -32,10 +35,16 @@ set(IMGUI_SOURCES
     ${IMGUI_BACKENDS_DIR}/imgui_impl_opengl3.cpp
 )
 
+# --- IMGUIMO SOURCES ---
+set(IMGUIMO_SOURCES
+    ${IMGUIMO_DIR}/src/ImGuizmo.cpp
+)
+
 # --- EDITOR EXECUTABLE ---
 add_executable(cygenus
     ${ENGINE_SOURCES}
     ${IMGUI_SOURCES}
+    ${IMGUIMO_SOURCES}
 )
 
 target_link_libraries(cygenus
@@ -49,6 +58,8 @@ target_include_directories(cygenus PRIVATE
     ${CMAKE_SOURCE_DIR}/src
     ${IMGUI_DIR}
     ${IMGUI_BACKENDS_DIR}
+    ${IMGUIMO_DIR}
+    ${IMGUIMO_DIR}/src
 )
 
 # --- macOS SPECIFIC ---

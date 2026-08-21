@@ -10,7 +10,7 @@ extern "C" {
 // Makes a fresh scene with a single cube
 void scene_new(EcsWorld* world);
 
-// Spawns a primitive entity: "cube", "sphere" or "plane"
+// Spawns a primitive entity: "cube", "sphere", "plane" or "camera"
 Entity scene_spawn_primitive(EcsWorld* world, const char* primitive);
 
 int scene_save(const EcsWorld* world, const char* filepath);

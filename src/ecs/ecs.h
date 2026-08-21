@@ -20,6 +20,7 @@ typedef enum {
     COMPONENT_MESH      = 1 << 1,
     COMPONENT_SCRIPT    = 1 << 2,
     COMPONENT_MATERIAL  = 1 << 3,
+    COMPONENT_CAMERA    = 1 << 4,
 } ComponentType;
 
 // Position/rotation/scale + parent-child hierarchy
@@ -50,6 +51,14 @@ typedef struct {
     char path[256];
 } ScriptComponent;
 
+// Camera component for game view rendering
+typedef struct {
+    float fov;
+    float near_plane;
+    float far_plane;
+    int display_tag; // Camera display tag (1 = main display camera, 2, 3, etc.)
+} CameraComponent;
+
 // The whole world: entities + their components
 typedef struct {
     int alive[ECS_MAX_ENTITIES];
@@ -59,6 +68,7 @@ typedef struct {
     MeshComponent meshes[ECS_MAX_ENTITIES];
     MaterialComponent materials[ECS_MAX_ENTITIES];
     ScriptComponent scripts[ECS_MAX_ENTITIES];
+    CameraComponent cameras[ECS_MAX_ENTITIES];
 } EcsWorld;
 
 void ecs_init(EcsWorld* world);
@@ -80,6 +90,14 @@ void ecs_rename_entity(EcsWorld* world, Entity e, const char* new_name);
 void ecs_set_parent(EcsWorld* world, Entity child, Entity parent);
 // Recomputes model matrices for dirty entities (parents first)
 void ecs_update_transforms(EcsWorld* world);
+
+// Camera management
+Entity ecs_get_display_camera(const EcsWorld* world, int tag);
+void ecs_set_camera_display_tag(EcsWorld* world, Entity e, int tag);
+
+// Game mode state management
+void ecs_save_state(EcsWorld* world, EcsWorld* backup);
+void ecs_restore_state(EcsWorld* world, const EcsWorld* backup);
 
 #ifdef __cplusplus
 }

@@ -1,6 +1,10 @@
 #ifndef MATH3D_H
 #define MATH3D_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // All matrices are column-major float[16]
 typedef struct { float x, y, z; } Vec3;
 
@@ -23,5 +27,9 @@ void mat4_rotate_y(float* out, float radians);
 void mat4_rotate_z(float* out, float radians);
 
 void mat4_compose_trs(float* out, Vec3 position, Vec3 rotation_degrees, Vec3 scale);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // MATH3D_H

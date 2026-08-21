@@ -1,4 +1,4 @@
-SCENE 1
+SCENE 2
 ENTITY
 name Cube
 position 0.000000 0.000000 0.000000
@@ -7,5 +7,12 @@ scale 1.000000 1.000000 1.000000
 mesh primitive:cube
 texture none
 tint 1.000000 1.000000 1.000000
+parent -1
+END
+ENTITY
+name Camera
+position 0.000000 0.000000 0.000000
+rotation 0.000000 0.000000 0.000000
+scale 1.000000 1.000000 1.000000
 parent -1
 END

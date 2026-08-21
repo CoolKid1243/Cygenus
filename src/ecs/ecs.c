@@ -35,6 +35,7 @@ Entity ecs_create_entity(EcsWorld* world, const char* name) {
         memset(&world->meshes[i], 0, sizeof(MeshComponent));
         memset(&world->materials[i], 0, sizeof(MaterialComponent));
         memset(&world->scripts[i], 0, sizeof(ScriptComponent));
+        memset(&world->cameras[i], 0, sizeof(CameraComponent));
         world->transforms[i].parent = ECS_INVALID_ENTITY;
         return i;
     }
@@ -81,6 +82,12 @@ void ecs_add_component(EcsWorld* world, Entity e, ComponentType type) {
         MaterialComponent* m = &world->materials[e];
         m->color[0] = m->color[1] = m->color[2] = 1.0f;
         snprintf(m->texture_path, sizeof(m->texture_path), "none");
+    } else if (type == COMPONENT_CAMERA) {
+        CameraComponent* c = &world->cameras[e];
+        c->fov = 45.0f;
+        c->near_plane = 0.1f;
+        c->far_plane = 100.0f;
+        c->display_tag = 0;
     }
 }
 
@@ -161,4 +168,43 @@ void ecs_update_transforms(EcsWorld* world) {
             update_transform_recursive(world, i, NULL, 0);
         }
     }
+}
+
+Entity ecs_get_display_camera(const EcsWorld* world, int tag) {
+    for (int i = 0; i < ECS_MAX_ENTITIES; i++) {
+        if (!world->alive[i]) continue;
+        if (!ecs_has_component(world, i, COMPONENT_CAMERA)) continue;
+        if (world->cameras[i].display_tag == tag) return i;
+    }
+    return ECS_INVALID_ENTITY;
+}
+
+void ecs_set_camera_display_tag(EcsWorld* world, Entity e, int tag) {
+    if (!ecs_is_alive(world, e) || !ecs_has_component(world, e, COMPONENT_CAMERA)) return;
+    
+    // If setting to a specific tag (not 0), handle auto-increment
+    if (tag > 0) {
+        // Find if any camera already has this tag
+        Entity existing_camera = ecs_get_display_camera(world, tag);
+        if (existing_camera != ECS_INVALID_ENTITY && existing_camera != e) {
+            // Auto-increment the existing camera's tag
+            int new_tag = tag + 1;
+            // Find the next available tag
+            while (ecs_get_display_camera(world, new_tag) != ECS_INVALID_ENTITY) {
+                new_tag++;
+            }
+            world->cameras[existing_camera].display_tag = new_tag;
+        }
+    }
+    
+    // Set the new tag
+    world->cameras[e].display_tag = tag;
+}
+
+void ecs_save_state(EcsWorld* world, EcsWorld* backup) {
+    memcpy(backup, world, sizeof(EcsWorld));
+}
+
+void ecs_restore_state(EcsWorld* world, const EcsWorld* backup) {
+    memcpy(world, backup, sizeof(EcsWorld));
 }

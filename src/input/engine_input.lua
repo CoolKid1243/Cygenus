@@ -10,7 +10,7 @@ pos_z = 3.0
 yaw = -90.0
 pitch = 0.0
 
-mouse_locked = true
+right_click_held = false
 first_mouse = true
 last_mouse_x = 0.0
 last_mouse_y = 0.0
@@ -24,10 +24,20 @@ front_z = 1.0
 editor_toggle = false
 
 function update(dt)
-    if input.key_pressed("COMMA") then
-        mouse_locked = not mouse_locked
-        input.set_mouse_locked(mouse_locked)
-        first_mouse = true
+    -- Right-click held enables camera rotation
+    if is_mouse_over_viewport() then
+        if input.mouse_button_pressed("RIGHT") then
+            right_click_held = true
+        end
+        if input.mouse_button_released("RIGHT") then
+            right_click_held = false
+            first_mouse = true
+        end
+    else
+        if right_click_held then
+            right_click_held = false
+            first_mouse = true
+        end
     end
 
     editor_toggle = input.key_pressed("F1")
@@ -44,7 +54,8 @@ function update(dt)
     last_mouse_x = mx
     last_mouse_y = my
 
-    if mouse_locked then
+    -- Rotate camera when right-click is held
+    if right_click_held then
         yaw = yaw + dx * sensitivity
         pitch = pitch + dy * sensitivity 
     end
@@ -66,28 +77,31 @@ function update(dt)
     local right_x = -front_z
     local right_z = front_x
 
-    if input.key_held("W") then
-        pos_x = pos_x + front_x * move_speed * dt
-        pos_y = pos_y + front_y * move_speed * dt
-        pos_z = pos_z + front_z * move_speed * dt
-    end
-    if input.key_held("S") then
-        pos_x = pos_x - front_x * move_speed * dt
-        pos_y = pos_y - front_y * move_speed * dt
-        pos_z = pos_z - front_z * move_speed * dt
-    end
-    if input.key_held("A") then
-        pos_x = pos_x - right_x * move_speed * dt
-        pos_z = pos_z - right_z * move_speed * dt
-    end
-    if input.key_held("D") then
-        pos_x = pos_x + right_x * move_speed * dt
-        pos_z = pos_z + right_z * move_speed * dt
-    end
-    if input.key_held("E") then
-        pos_y = pos_y + move_speed * dt
-    end
-    if input.key_held("Q") then
-        pos_y = pos_y - move_speed * dt
+    -- Only allow WASD/EQ movement when right-click is held
+    if right_click_held then
+        if input.key_held("W") then
+            pos_x = pos_x + front_x * move_speed * dt
+            pos_y = pos_y + front_y * move_speed * dt
+            pos_z = pos_z + front_z * move_speed * dt
+        end
+        if input.key_held("S") then
+            pos_x = pos_x - front_x * move_speed * dt
+            pos_y = pos_y - front_y * move_speed * dt
+            pos_z = pos_z - front_z * move_speed * dt
+        end
+        if input.key_held("A") then
+            pos_x = pos_x - right_x * move_speed * dt
+            pos_z = pos_z - right_z * move_speed * dt
+        end
+        if input.key_held("D") then
+            pos_x = pos_x + right_x * move_speed * dt
+            pos_z = pos_z + right_z * move_speed * dt
+        end
+        if input.key_held("E") then
+            pos_y = pos_y + move_speed * dt
+        end
+        if input.key_held("Q") then
+            pos_y = pos_y - move_speed * dt
+        end
     end
 end

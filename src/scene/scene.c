@@ -18,10 +18,20 @@ Entity scene_spawn_primitive(EcsWorld* world, const char* primitive) {
 
     ecs_add_component(world, e, COMPONENT_TRANSFORM);
 
-    ecs_add_component(world, e, COMPONENT_MESH);
-    snprintf(world->meshes[e].mesh_path, sizeof(world->meshes[e].mesh_path), "primitive:%s", primitive);
+    // Camera is special - only transform and camera components, no mesh/material
+    if (strcmp(primitive, "camera") == 0) {
+        ecs_add_component(world, e, COMPONENT_CAMERA);
+        // Set default camera position
+        world->transforms[e].position = (Vec3){0.0f, 0.0f, 0.0f};
+        world->transforms[e].rotation = (Vec3){0.0f, 0.0f, 0.0f};
+        world->transforms[e].scale = (Vec3){1.0f, 1.0f, 1.0f};
+    } else {
+        // Regular primitives get mesh and material
+        ecs_add_component(world, e, COMPONENT_MESH);
+        snprintf(world->meshes[e].mesh_path, sizeof(world->meshes[e].mesh_path), "primitive:%s", primitive);
 
-    ecs_add_component(world, e, COMPONENT_MATERIAL);
+        ecs_add_component(world, e, COMPONENT_MATERIAL);
+    }
 
     return e;
 }

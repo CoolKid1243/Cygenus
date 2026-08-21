@@ -16,6 +16,9 @@ int script_system_is_playing(void);
 void script_system_update(float dt);
 void script_system_shutdown(void);
 
+// Set the world reference for state management
+void script_system_set_world(EcsWorld* world);
+
 #ifdef __cplusplus
 }
 #endif

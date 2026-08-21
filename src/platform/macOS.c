@@ -175,6 +175,13 @@ int platform_mouse_button_pressed(PlatformWindow* window, int button) {
     return 0;
 }
 
+int platform_mouse_button_released(PlatformWindow* window, int button) {
+    if (button >= 0 && button < 8) {
+        return (current_mouse_state[button] == 0 && previous_mouse_state[button] == 1);
+    }
+    return 0;
+}
+
 void platform_set_mouse_locked(PlatformWindow* window, int locked) {
     if (window && window->glfw_window) {
         glfwSetInputMode(window->glfw_window, GLFW_CURSOR,

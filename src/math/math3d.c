@@ -6,6 +6,10 @@
 #define M_PI 3.14159265358979323846
 #endif
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 Vec3 vec3_sub(Vec3 a, Vec3 b) {
     Vec3 r = { a.x - b.x, a.y - b.y, a.z - b.z };
     return r;
@@ -132,3 +136,7 @@ void mat4_compose_trs(float* out, Vec3 position, Vec3 rotation_degrees, Vec3 sca
     mat4_multiply(temp, rot, s);  // temp = R * S
     mat4_multiply(out, t, temp);  // out  = T * R * S
 }
+
+#ifdef __cplusplus
+}
+#endif
