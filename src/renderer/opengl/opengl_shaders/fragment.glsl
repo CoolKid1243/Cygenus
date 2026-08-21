@@ -8,7 +8,11 @@ uniform int uUseTexture;
 uniform vec3 uTint;
 
 void main() {
-    // vec3 base = uUseTexture == 1 ? texture(uTexture, UV).rgb : vec3(FragColor); Error glitch effect?
+    float ambientStrength = 0.1;
+    vec3 ambient = ambientStrength * lightColor;
+
     vec3 base = uUseTexture == 1 ? texture(uTexture, UV).rgb : vec3(1.0);
+    
+    vec3 result = 
     FragColor = vec4(base * uTint, 1.0);
 }

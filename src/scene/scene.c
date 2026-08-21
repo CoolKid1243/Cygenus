@@ -73,6 +73,10 @@ int scene_save(const EcsWorld* world, const char* filepath) {
             const ScriptComponent* s = &world->scripts[i];
             fprintf(file, "script %s\n", s->path[0] ? s->path : "none");
         }
+        if (ecs_has_component(world, i, COMPONENT_CAMERA)) {
+            const CameraComponent* cam = &world->cameras[i];
+            fprintf(file, "camera %f %f %f %d\n", cam->fov, cam->near_plane, cam->far_plane, cam->display_tag);
+        }
         fprintf(file, "parent %d\n", t->parent == ECS_INVALID_ENTITY ? -1 : save_index[t->parent]);
         fprintf(file, "END\n");
     }
@@ -141,6 +145,10 @@ int scene_load(EcsWorld* world, const char* filepath) {
                     snprintf(world->scripts[current].path, sizeof(world->scripts[current].path), "%.255s", line + 7);
                     ecs_add_component(world, current, COMPONENT_SCRIPT);
                 }
+            } else if (strncmp(line, "camera ", 7) == 0) {
+                ecs_add_component(world, current, COMPONENT_CAMERA);
+                CameraComponent* cam = &world->cameras[current];
+                sscanf(line + 7, "%f %f %f %d", &cam->fov, &cam->near_plane, &cam->far_plane, &cam->display_tag);
             } else if (strncmp(line, "parent ", 7) == 0) {
                 sscanf(line + 7, "%d", &parents[count - 1]);
             } else if (strcmp(line, "END") == 0) {
