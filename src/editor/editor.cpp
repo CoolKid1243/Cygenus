@@ -869,7 +869,7 @@ extern "C" void editor_render() {
                     t->dirty = 1;
                 }
                 float sca[3] = {t->scale.x, t->scale.y, t->scale.z};
-                if (ImGui::DragFloat3("Scale", sca, 0.05f, 0.01f, 10.0f, "%.2f")) {
+                if (ImGui::DragFloat3("Scale", sca, 0.05f, 0.01f, 10000.0f, "%.2f")) {
                     t->scale.x = sca[0]; t->scale.y = sca[1]; t->scale.z = sca[2];
                     t->dirty = 1;
                 }

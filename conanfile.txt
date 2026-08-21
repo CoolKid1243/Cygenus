@@ -3,6 +3,7 @@ glfw/3.3.8
 glew/2.2.0
 opengl/system
 lua/5.4.6
+joltphysics/5.2.0
 
 [generators]
 CMakeDeps
