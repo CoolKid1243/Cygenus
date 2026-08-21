@@ -9,7 +9,7 @@ output/
 *.exe
 
 # IDE files
-.vscode/
+# .vscode/
 .idea/
 *.swp
 *.swo

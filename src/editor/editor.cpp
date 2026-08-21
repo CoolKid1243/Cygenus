@@ -3,6 +3,7 @@
 #include "../scripting/script_system.h"
 #include "../ecs/ecs.h"
 #include "../math/math3d.h"
+#include "../input/engine_input.h"
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <backends/imgui_impl_glfw.h>
@@ -16,6 +17,10 @@
 #include <stdlib.h>
 #include <math.h>
 #include <sys/stat.h>
+
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
 
 #if defined(_WIN32)
 #include "../platform/win_dirent.h"
@@ -61,6 +66,26 @@ static bool gizmo_using = false;
 // Camera matrices for gizmos
 static float camera_view_matrix[16] = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};
 static float camera_projection_matrix[16] = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};
+
+// View gizmo (the little orientation cube, top-right of the viewport, like Unity/Blender)
+static float view_gizmo_matrix[16] = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};
+
+static void decompose_view_matrix(const float* view, float* out_eye, float* out_yaw_deg, float* out_pitch_deg) {
+    float right[3]       = { view[0], view[4], view[8]  };
+    float up[3]          = { view[1], view[5], view[9]  };
+    float neg_forward[3] = { view[2], view[6], view[10] };
+    float forward[3]     = { -neg_forward[0], -neg_forward[1], -neg_forward[2] };
+
+    float t[3] = { view[12], view[13], view[14] };
+
+    // Inverse of an orthonormal look-at matrix: eye = -right*t.x - up*t.y + forward*t.z
+    for (int i = 0; i < 3; i++) {
+        out_eye[i] = -right[i] * t[0] - up[i] * t[1] + forward[i] * t[2];
+    }
+
+    *out_pitch_deg = asinf(forward[1]) * (180.0f / (float)M_PI);
+    *out_yaw_deg = atan2f(forward[2], forward[0]) * (180.0f / (float)M_PI);
+}
 
 // Key state tracking for hotkeys
 static bool key_q_pressed = false;
@@ -749,16 +774,32 @@ extern "C" void editor_render() {
             else if (current_gizmo_operation == ImGuizmo::SCALE) current_gizmo_operation = ImGuizmo::TRANSLATE; // Skip None for now
         }
         
-        // 3D gyroscope rotation indicator (top right, like Unity) - disabled for now
-        // float view_gyro[16];
-        // memcpy(view_gyro, camera_view_matrix, sizeof(view_gyro));
-        // ImGuizmo::ViewManipulate(
-        //     view_gyro, 
-        //     1.0f, // length
-        //     ImVec2(img_pos.x + vp_size.x - 128, img_pos.y), 
-        //     ImVec2(128, 128),
-        //     0x80808080 // semi-transparent gray background
-        // );
+        {
+            const float gizmo_size = 96.0f;
+            const float margin = 10.0f;
+            ImVec2 gizmo_pos = ImVec2(img_pos.x + vp_size.x - gizmo_size - margin, img_pos.y + margin);
+
+            memcpy(view_gizmo_matrix, camera_view_matrix, sizeof(view_gizmo_matrix));
+
+            ImGuizmo::ViewManipulate(
+                view_gizmo_matrix,
+                1.0f,
+                gizmo_pos,
+                ImVec2(gizmo_size, gizmo_size),
+                0x10101010
+            );
+
+            if (ImGuizmo::IsUsingViewManipulate()) {
+                float eye[3], yaw_deg, pitch_deg;
+                decompose_view_matrix(view_gizmo_matrix, eye, &yaw_deg, &pitch_deg);
+
+                if (pitch_deg > 89.0f) pitch_deg = 89.0f;
+                if (pitch_deg < -89.0f) pitch_deg = -89.0f;
+
+                engine_input_set_position(eye[0], eye[1], eye[2]);
+                engine_input_set_yaw_pitch(yaw_deg, pitch_deg);
+            }
+        }
     }
     ImGui::End();
     ImGui::PopStyleVar();

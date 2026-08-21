@@ -49,6 +49,11 @@ static float get_number_global(const char* name) {
     return value;
 }
 
+static void set_number_global(const char* name, float value) {
+    lua_pushnumber(L, value);
+    lua_setglobal(L, name);
+}
+
 void engine_input_get_position(float* x, float* y, float* z) {
     *x = get_number_global("pos_x");
     *y = get_number_global("pos_y");
@@ -59,6 +64,17 @@ void engine_input_get_front(float* x, float* y, float* z) {
     *x = get_number_global("front_x");
     *y = get_number_global("front_y");
     *z = get_number_global("front_z");
+}
+
+void engine_input_set_position(float x, float y, float z) {
+    set_number_global("pos_x", x);
+    set_number_global("pos_y", y);
+    set_number_global("pos_z", z);
+}
+
+void engine_input_set_yaw_pitch(float yaw_degrees, float pitch_degrees) {
+    set_number_global("yaw", yaw_degrees);
+    set_number_global("pitch", pitch_degrees);
 }
 
 int engine_input_editor_toggle_pressed(void) {
