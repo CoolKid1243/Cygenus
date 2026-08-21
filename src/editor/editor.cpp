@@ -68,6 +68,7 @@ static bool key_w_pressed = false;
 static bool key_e_pressed = false;
 static bool key_r_pressed = false;
 static bool key_t_pressed = false;
+static bool key_s_pressed = false;
 
 static bool first_frame = true;
 
@@ -339,7 +340,12 @@ extern "C" void editor_init(PlatformWindow* window) {
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-    io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
+    // NOTE: ImGuiConfigFlags_ViewportsEnable (multi-OS-window docking) is deliberately
+    // left off. It requires per-viewport DPI scale info from the platform backend,
+    // and on some GPU/monitor combinations that comes back invalid, which trips
+    // Dear ImGui's internal "g.CurrentDpiScale > 0.0f && g.CurrentDpiScale < 99.0f"
+    // assertion in imgui.cpp and crashes on the very first frame. Docking windows
+    // within the single game window (already enabled above) is unaffected.
     io.ConfigWindowsMoveFromTitleBarOnly = true; // avoids accidental drags, feels more "app-like"
 
     ImGui::StyleColorsDark();
@@ -379,21 +385,29 @@ extern "C" void editor_new_frame() {
     ImGui_ImplOpenGL3_NewFrame();
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
+    ImGuizmo::BeginFrame();
     
     // Handle gizmo hotkeys (Unity-style) - only on key press, not hold
     // Note: Q is used for camera movement down, so we use different keys for gizmos
+    // While right-click camera fly-through is active, WASD/QE drive the camera
+    // instead, so skip gizmo hotkey switching entirely to avoid W/S also
+    // flipping the gizmo mode mid-flight.
+    bool camera_controlling = ImGui::IsMouseDown(ImGuiMouseButton_Right);
+
     bool w_current = ImGui::IsKeyDown(ImGuiKey_W);
     bool e_current = ImGui::IsKeyDown(ImGuiKey_E);
     bool r_current = ImGui::IsKeyDown(ImGuiKey_R);
     bool t_current = ImGui::IsKeyDown(ImGuiKey_T);
     bool s_current = ImGui::IsKeyDown(ImGuiKey_S); // Use S for scale instead of Q
-    
-    if (w_current && !key_w_pressed) current_gizmo_operation = ImGuizmo::TRANSLATE;
-    if (e_current && !key_e_pressed) current_gizmo_operation = ImGuizmo::ROTATE;
-    if (r_current && !key_r_pressed) current_gizmo_operation = ImGuizmo::SCALE;
-    if (t_current && !key_t_pressed) current_gizmo_operation = ImGuizmo::TRANSLATE;
-    if (s_current && !key_s_pressed) current_gizmo_operation = ImGuizmo::SCALE;
-    
+
+    if (!camera_controlling) {
+        if (w_current && !key_w_pressed) current_gizmo_operation = ImGuizmo::TRANSLATE;
+        if (e_current && !key_e_pressed) current_gizmo_operation = ImGuizmo::ROTATE;
+        if (r_current && !key_r_pressed) current_gizmo_operation = ImGuizmo::SCALE;
+        if (t_current && !key_t_pressed) current_gizmo_operation = ImGuizmo::TRANSLATE;
+        if (s_current && !key_s_pressed) current_gizmo_operation = ImGuizmo::SCALE;
+    }
+
     key_w_pressed = w_current;
     key_e_pressed = e_current;
     key_r_pressed = r_current;
