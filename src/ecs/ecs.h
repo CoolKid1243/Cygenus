@@ -10,6 +10,7 @@ extern "C" {
 #define ECS_MAX_ENTITIES 256
 #define ECS_MAX_CHILDREN 32
 #define ECS_INVALID_ENTITY -1
+#define MAX_POINT_LIGHTS 128
 
 // An entity is just an id (index into the world arrays)
 typedef int Entity;
@@ -21,6 +22,7 @@ typedef enum {
     COMPONENT_SCRIPT    = 1 << 2,
     COMPONENT_MATERIAL  = 1 << 3,
     COMPONENT_CAMERA    = 1 << 4,
+    COMPONENT_LIGHT     = 1 << 5,
 } ComponentType;
 
 // Position/rotation/scale + parent-child hierarchy
@@ -56,8 +58,18 @@ typedef struct {
     float fov;
     float near_plane;
     float far_plane;
-    int display_tag; // Camera display tag (1 = main display camera, 2, 3, etc.)
+    int display_tag;
 } CameraComponent;
+
+typedef struct {
+    float color[3];
+    float intensity;
+    // struct {
+    //     PointLight;
+    //     DirectionalLight;
+    //     SpotLight;
+    // } TypeOfLight;
+} LightComponent;
 
 // The whole world: entities + their components
 typedef struct {
@@ -69,6 +81,7 @@ typedef struct {
     MaterialComponent materials[ECS_MAX_ENTITIES];
     ScriptComponent scripts[ECS_MAX_ENTITIES];
     CameraComponent cameras[ECS_MAX_ENTITIES];
+    LightComponent lights[ECS_MAX_ENTITIES];
 } EcsWorld;
 
 void ecs_init(EcsWorld* world);
@@ -94,6 +107,9 @@ void ecs_update_transforms(EcsWorld* world);
 // Camera management
 Entity ecs_get_display_camera(const EcsWorld* world, int tag);
 void ecs_set_camera_display_tag(EcsWorld* world, Entity e, int tag);
+
+Entity ecs_find_first_light(const EcsWorld* world);
+int ecs_find_lights(const EcsWorld* world, Entity* out_entities, int max_count);
 
 // Game mode state management
 void ecs_save_state(EcsWorld* world, EcsWorld* backup);

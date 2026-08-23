@@ -36,6 +36,7 @@ Entity ecs_create_entity(EcsWorld* world, const char* name) {
         memset(&world->materials[i], 0, sizeof(MaterialComponent));
         memset(&world->scripts[i], 0, sizeof(ScriptComponent));
         memset(&world->cameras[i], 0, sizeof(CameraComponent));
+        memset(&world->lights[i], 0, sizeof(LightComponent));
         world->transforms[i].parent = ECS_INVALID_ENTITY;
         return i;
     }
@@ -88,6 +89,10 @@ void ecs_add_component(EcsWorld* world, Entity e, ComponentType type) {
         c->near_plane = 0.1f;
         c->far_plane = 100.0f;
         c->display_tag = 0;
+    } else if (type == COMPONENT_LIGHT) {
+        LightComponent* l = &world->lights[e];
+        l->color[0] = l->color[1] = l->color[2] = 1.0f; // white
+        l->intensity = 1.0f;
     }
 }
 
@@ -199,6 +204,25 @@ void ecs_set_camera_display_tag(EcsWorld* world, Entity e, int tag) {
     
     // Set the new tag
     world->cameras[e].display_tag = tag;
+}
+
+Entity ecs_find_first_light(const EcsWorld* world) {
+    for (int i = 0; i < ECS_MAX_ENTITIES; i++) {
+        if (!world->alive[i]) continue;
+        if (!ecs_has_component(world, i, COMPONENT_LIGHT)) continue;
+        return i;
+    }
+    return ECS_INVALID_ENTITY;
+}
+
+int ecs_find_lights(const EcsWorld* world, Entity* out_entities, int max_count) {
+    int count = 0;
+    for (int i = 0; i < ECS_MAX_ENTITIES && count < max_count; i++) {
+        if (!world->alive[i]) continue;
+        if (!ecs_has_component(world, i, COMPONENT_LIGHT)) continue;
+        out_entities[count++] = i;
+    }
+    return count;
 }
 
 void ecs_save_state(EcsWorld* world, EcsWorld* backup) {

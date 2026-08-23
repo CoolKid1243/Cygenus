@@ -3,6 +3,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
+
+#include "ufbx.h"
 
 typedef struct { float u, v; } UV;
 
@@ -48,7 +51,21 @@ static void vertex_array_push(VertexArray* arr, RHIVertex v) {
     arr->data[arr->count++] = v;
 }
 
-RHIMesh* obj_load_mesh(const char* filepath) {
+// Case-insensitive check for whether `path` ends with `suffix` (e.g. ".fbx"),
+// since some exporters/OSes produce uppercase extensions and strcasecmp
+// isn't portable to MSVC.
+static int ends_with_ci(const char* path, const char* suffix) {
+    size_t path_len = strlen(path);
+    size_t suffix_len = strlen(suffix);
+    if (path_len < suffix_len) return 0;
+    const char* tail = path + (path_len - suffix_len);
+    for (size_t i = 0; i < suffix_len; i++) {
+        if (tolower((unsigned char)tail[i]) != tolower((unsigned char)suffix[i])) return 0;
+    }
+    return 1;
+}
+
+static RHIMesh* load_obj_mesh(const char* filepath) {
     FILE* file = fopen(filepath, "r");
     if (!file) {
         printf("Failed to open OBJ file: %s\n", filepath);
@@ -76,28 +93,44 @@ RHIMesh* obj_load_mesh(const char* filepath) {
             sscanf(line, "vn %f %f %f", &n.x, &n.y, &n.z);
             vec3_array_push(&normals, n);
         } else if (line[0] == 'f' && line[1] == ' ') {
-            int vi[3], ti[3], ni[3];
-            int matched = sscanf(line, "f %d/%d/%d %d/%d/%d %d/%d/%d",
-                &vi[0], &ti[0], &ni[0],
-                &vi[1], &ti[1], &ni[1],
-                &vi[2], &ti[2], &ni[2]);
+            // Read however many v/vt/vn groups are on this line - a
+            // triangle has 3, but Blender's default OBJ export writes
+            // quads (4), and OBJ technically allows arbitrary n-gons.
+            int vi[32], ti[32], ni[32];
+            int n = 0;
 
-            if (matched != 9) {
-                printf("Skipping unsupported face line (need triangulated v/vt/vn): %s", line);
+            char buf[256];
+            snprintf(buf, sizeof(buf), "%s", line + 2); // skip "f "
+
+            char* token = strtok(buf, " \t\r\n");
+            while (token && n < 32) {
+                int a, b, c;
+                if (sscanf(token, "%d/%d/%d", &a, &b, &c) == 3) {
+                    vi[n] = a; ti[n] = b; ni[n] = c;
+                    n++;
+                }
+                token = strtok(NULL, " \t\r\n");
+            }
+
+            if (n < 3) {
+                printf("Skipping unsupported face line (need at least a triangle with v/vt/vn): %s", line);
                 continue;
             }
 
-            // OBJ indices are 1-based, so subtract 1 for our 0-based arrays.
-            for (int i = 0; i < 3; i++) {
-                Vec3 pos = positions.data[vi[i] - 1];
-                Vec3 nrm = normals.data[ni[i] - 1];
-                UV uv = uvs.data[ti[i] - 1];
+            for (int i = 1; i < n - 1; i++) {
+                int idx[3] = { 0, i, i + 1 };
+                for (int k = 0; k < 3; k++) {
+                    int j = idx[k];
+                    Vec3 pos = positions.data[vi[j] - 1];
+                    Vec3 nrm = normals.data[ni[j] - 1];
+                    UV uv = uvs.data[ti[j] - 1];
 
-                RHIVertex vert;
-                vert.x = pos.x; vert.y = pos.y; vert.z = pos.z;
-                vert.nx = nrm.x; vert.ny = nrm.y; vert.nz = nrm.z;
-                vert.u = uv.u; vert.v = uv.v;
-                vertex_array_push(&vertices, vert);
+                    RHIVertex vert;
+                    vert.x = pos.x; vert.y = pos.y; vert.z = pos.z;
+                    vert.nx = nrm.x; vert.ny = nrm.y; vert.nz = nrm.z;
+                    vert.u = uv.u; vert.v = uv.v;
+                    vertex_array_push(&vertices, vert);
+                }
             }
         }
     }
@@ -116,4 +149,75 @@ RHIMesh* obj_load_mesh(const char* filepath) {
     free(vertices.data);
 
     return mesh;
+}
+
+static RHIMesh* load_fbx_mesh(const char* filepath) {
+    ufbx_load_opts opts = {0};
+    // Normalize every file to the same axes/scale our engine expects,
+    // regardless of which axis convention the source DCC tool (Blender,
+    // Maya, 3ds Max, etc.) exported with - otherwise an FBX authored in a
+    // Z-up tool would import lying on its side.
+    opts.target_axes = ufbx_axes_right_handed_y_up;
+    opts.target_unit_meters = 1.0f;
+    opts.generate_missing_normals = true;
+
+    ufbx_error error;
+    ufbx_scene* scene = ufbx_load_file(filepath, &opts, &error);
+    if (!scene) {
+        printf("Failed to load FBX file: %s (%s)\n", filepath, error.description.data);
+        return NULL;
+    }
+
+    if (scene->meshes.count == 0) {
+        printf("FBX file has no meshes: %s\n", filepath);
+        ufbx_free_scene(scene);
+        return NULL;
+    }
+
+    // NOTE: only supports a single mesh per file, same as load_obj_mesh - if
+    // the FBX has multiple meshes/objects, only the first is loaded, and no
+    // materials, skeletons, or animation are read yet either.
+    ufbx_mesh* mesh = scene->meshes.data[0];
+
+    VertexArray vertices = {0};
+    uint32_t* tri_indices = malloc(mesh->max_face_triangles * 3 * sizeof(uint32_t));
+
+    for (size_t f = 0; f < mesh->faces.count; f++) {
+        ufbx_face face = mesh->faces.data[f];
+        uint32_t num_tri_indices = ufbx_triangulate_face(tri_indices, mesh->max_face_triangles * 3, mesh, face);
+
+        for (uint32_t t = 0; t < num_tri_indices; t++) {
+            uint32_t index = tri_indices[t];
+
+            ufbx_vec3 pos = ufbx_get_vertex_vec3(&mesh->vertex_position, index);
+            ufbx_vec3 nrm = mesh->vertex_normal.exists
+                ? ufbx_get_vertex_vec3(&mesh->vertex_normal, index)
+                : (ufbx_vec3){0, 1, 0};
+            ufbx_vec2 uv = mesh->vertex_uv.exists
+                ? ufbx_get_vertex_vec2(&mesh->vertex_uv, index)
+                : (ufbx_vec2){0, 0};
+
+            RHIVertex vert;
+            vert.x = (float)pos.x;  vert.y = (float)pos.y;  vert.z = (float)pos.z;
+            vert.nx = (float)nrm.x; vert.ny = (float)nrm.y; vert.nz = (float)nrm.z;
+            vert.u = (float)uv.x;   vert.v = (float)uv.y;
+            vertex_array_push(&vertices, vert);
+        }
+    }
+
+    free(tri_indices);
+    ufbx_free_scene(scene);
+
+    RHIBuffer* vbo = rhi_buffer_create(vertices.data, vertices.count);
+    RHIMesh* result = rhi_mesh_create(vbo, NULL); // NULL: no index buffer, draw as plain triangle list (matches load_obj_mesh)
+
+    free(vertices.data);
+    return result;
+}
+
+RHIMesh* obj_load_mesh(const char* filepath) {
+    if (ends_with_ci(filepath, ".fbx")) {
+        return load_fbx_mesh(filepath);
+    }
+    return load_obj_mesh(filepath);
 }

@@ -13,6 +13,7 @@ find_package(glfw3 REQUIRED)
 find_package(GLEW REQUIRED)
 find_package(OpenGL REQUIRED)
 find_package(lua REQUIRED)
+find_package(Jolt REQUIRED)
 
 # --- ImGui (local) ---
 set(IMGUI_DIR ${CMAKE_SOURCE_DIR}/third_party/imgui)
@@ -20,6 +21,9 @@ set(IMGUI_BACKENDS_DIR ${IMGUI_DIR}/backends)
 
 # --- ImGuizmo (local) ---
 set(IMGUIMO_DIR ${CMAKE_SOURCE_DIR}/third_party/ImGuizmo)
+
+# --- ufbx (local) - FBX mesh loading ---
+set(UFBX_DIR ${CMAKE_SOURCE_DIR}/third_party/ufbx)
 
 # --- ENGINE SOURCES (for main executable) ---
 file(GLOB_RECURSE ENGINE_SOURCES "src/*.c" "src/*.cpp")
@@ -40,11 +44,17 @@ set(IMGUIMO_SOURCES
     ${IMGUIMO_DIR}/src/ImGuizmo.cpp
 )
 
+# --- UFBX SOURCES ---
+set(UFBX_SOURCES
+    ${UFBX_DIR}/ufbx.c
+)
+
 # --- EDITOR EXECUTABLE ---
 add_executable(cygenus
     ${ENGINE_SOURCES}
     ${IMGUI_SOURCES}
     ${IMGUIMO_SOURCES}
+    ${UFBX_SOURCES}
 )
 
 target_link_libraries(cygenus
@@ -52,6 +62,7 @@ target_link_libraries(cygenus
     GLEW::GLEW
     ${OPENGL_LIBRARIES}
     lua::lua
+    Jolt::Jolt
 )
 
 target_include_directories(cygenus PRIVATE
@@ -60,6 +71,7 @@ target_include_directories(cygenus PRIVATE
     ${IMGUI_BACKENDS_DIR}
     ${IMGUIMO_DIR}
     ${IMGUIMO_DIR}/src
+    ${UFBX_DIR}
 )
 
 # --- macOS SPECIFIC ---

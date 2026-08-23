@@ -18,7 +18,7 @@ if not exist build mkdir build
 
 REM Install dependencies
 echo 📦 Installing dependencies with Conan...
-call conan install . --build=missing
+call conan install . --build=missing -s compiler.cppstd=17
 if %errorlevel% neq 0 (
     echo ❌ Conan install failed!
     pause

@@ -136,6 +136,39 @@ static int l_set_tint(lua_State* L) {
     return 0;
 }
 
+// engine.create_light(name) -> id
+// A bare entity (no mesh) with a Transform + LightComponent. Position it
+// with engine.set_position like anything else.
+static int l_create_light(lua_State* L) {
+    const char* name = luaL_optstring(L, 1, "Light");
+    Entity e = ecs_create_entity(bound_world, name);
+    ecs_add_component(bound_world, e, COMPONENT_TRANSFORM);
+    bound_world->transforms[e].scale = (Vec3){1, 1, 1};
+    bound_world->transforms[e].dirty = 1;
+    ecs_add_component(bound_world, e, COMPONENT_LIGHT); // gives sensible white/1.0 defaults
+    lua_pushinteger(L, e);
+    return 1;
+}
+
+// engine.set_light_color(id, r, g, b)
+static int l_set_light_color(lua_State* L) {
+    Entity e = check_entity(L, 1);
+    ecs_add_component(bound_world, e, COMPONENT_LIGHT);
+    LightComponent* l = &bound_world->lights[e];
+    l->color[0] = (float)luaL_checknumber(L, 2);
+    l->color[1] = (float)luaL_checknumber(L, 3);
+    l->color[2] = (float)luaL_checknumber(L, 4);
+    return 0;
+}
+
+// engine.set_light_intensity(id, intensity)
+static int l_set_light_intensity(lua_State* L) {
+    Entity e = check_entity(L, 1);
+    ecs_add_component(bound_world, e, COMPONENT_LIGHT);
+    bound_world->lights[e].intensity = (float)luaL_checknumber(L, 2);
+    return 0;
+}
+
 // engine.set_parent(child_id, parent_id or nil)
 static int l_set_parent(lua_State* L) {
     Entity child = check_entity(L, 1);
@@ -166,6 +199,9 @@ static const luaL_Reg engine_functions[] = {
     {"get_scale",      l_get_scale},
     {"set_scale",      l_set_scale},
     {"set_tint",       l_set_tint},
+    {"create_light",   l_create_light},
+    {"set_light_color",     l_set_light_color},
+    {"set_light_intensity", l_set_light_intensity},
     {"set_parent",     l_set_parent},
     {"entity_count",   l_entity_count},
     {NULL, NULL}

@@ -614,6 +614,9 @@ extern "C" void editor_render() {
                         ecs_set_camera_display_tag(world, i, 1);
                     }
                 }
+                if (!ecs_has_component(world, i, COMPONENT_LIGHT) && ImGui::MenuItem("Light")) {
+                    ecs_add_component(world, i, COMPONENT_LIGHT);
+                }
                 ImGui::EndMenu();
             }
             if (ImGui::MenuItem("Duplicate")) {
@@ -634,6 +637,10 @@ extern "C" void editor_render() {
                 if (ecs_has_component(world, i, COMPONENT_CAMERA)) {
                     ecs_add_component(world, new_entity, COMPONENT_CAMERA);
                     world->cameras[new_entity] = world->cameras[i];
+                }
+                if (ecs_has_component(world, i, COMPONENT_LIGHT)) {
+                    ecs_add_component(world, new_entity, COMPONENT_LIGHT);
+                    world->lights[new_entity] = world->lights[i];
                 }
                 selected_entity = new_entity;
             }
@@ -989,6 +996,26 @@ extern "C" void editor_render() {
             }
         }
 
+        // Light component
+        if (ecs_has_component(world, e, COMPONENT_LIGHT)) {
+            ImGui::SeparatorText("Light");
+            if (component_remove_button("light")) {
+                ecs_remove_component(world, e, COMPONENT_LIGHT);
+            } else {
+                LightComponent* light = &world->lights[e];
+
+                float color[3] = {light->color[0], light->color[1], light->color[2]};
+                if (ImGui::ColorEdit3("Colour##light", color, 0)) {
+                    light->color[0] = color[0]; light->color[1] = color[1]; light->color[2] = color[2];
+                }
+
+                float intensity = light->intensity;
+                if (ImGui::DragFloat("Intensity", &intensity, 0.05f, 0.0f, 20.0f, "%.2f")) {
+                    light->intensity = intensity;
+                }
+            }
+        }
+
         // Add component button - lists the components the entity doesn't have yet
         ImGui::Spacing();
         if (ImGui::Button("Add Component", ImVec2(ImGui::GetContentRegionAvail().x, 30))) {
@@ -1013,6 +1040,9 @@ extern "C" void editor_render() {
                 if (ecs_get_display_camera(world, 1) == ECS_INVALID_ENTITY) {
                     ecs_set_camera_display_tag(world, e, 1);
                 }
+            }
+            if (!ecs_has_component(world, e, COMPONENT_LIGHT) && ImGui::MenuItem("Light")) {
+                ecs_add_component(world, e, COMPONENT_LIGHT);
             }
             ImGui::EndPopup();
         }

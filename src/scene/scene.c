@@ -77,6 +77,10 @@ int scene_save(const EcsWorld* world, const char* filepath) {
             const CameraComponent* cam = &world->cameras[i];
             fprintf(file, "camera %f %f %f %d\n", cam->fov, cam->near_plane, cam->far_plane, cam->display_tag);
         }
+        if (ecs_has_component(world, i, COMPONENT_LIGHT)) {
+            const LightComponent* l = &world->lights[i];
+            fprintf(file, "light %f %f %f %f\n", l->color[0], l->color[1], l->color[2], l->intensity);
+        }
         fprintf(file, "parent %d\n", t->parent == ECS_INVALID_ENTITY ? -1 : save_index[t->parent]);
         fprintf(file, "END\n");
     }
@@ -149,6 +153,10 @@ int scene_load(EcsWorld* world, const char* filepath) {
                 ecs_add_component(world, current, COMPONENT_CAMERA);
                 CameraComponent* cam = &world->cameras[current];
                 sscanf(line + 7, "%f %f %f %d", &cam->fov, &cam->near_plane, &cam->far_plane, &cam->display_tag);
+            } else if (strncmp(line, "light ", 6) == 0) {
+                ecs_add_component(world, current, COMPONENT_LIGHT);
+                LightComponent* l = &world->lights[current];
+                sscanf(line + 6, "%f %f %f %f", &l->color[0], &l->color[1], &l->color[2], &l->intensity);
             } else if (strncmp(line, "parent ", 7) == 0) {
                 sscanf(line + 7, "%d", &parents[count - 1]);
             } else if (strcmp(line, "END") == 0) {

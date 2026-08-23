@@ -6,6 +6,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#define MAX_POINT_LIGHTS 128
+
 static RHIShader* active_shader = NULL;
 static RHIMesh* cached_meshes[ECS_MAX_ENTITIES];
 static RHITexture* cached_textures[ECS_MAX_ENTITIES];
@@ -27,7 +29,7 @@ static RHIMesh* load_mesh(const char* mesh_path) {
         const char* prim = mesh_path + 10;
         if (strcmp(prim, "cube") == 0) return primitive_create_cube();
         if (strcmp(prim, "plane") == 0) return primitive_create_plane(3.0f, 3.0f, 1);
-        if (strcmp(prim, "sphere") == 0) return primitive_create_sphere(1.0f, 16, 16);
+        if (strcmp(prim, "sphere") == 0) return primitive_create_sphere(0.7f, 16, 16);
         // printf("Unknown primitive: %s\n", prim);
         return NULL;
     }
@@ -87,6 +89,26 @@ void render_system_sync(EcsWorld* world) {
 void render_system_draw(EcsWorld* world) {
     static const float identity[16] = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};
     static const float white[3] = {1, 1, 1};
+
+    Entity lights[MAX_POINT_LIGHTS];
+    int light_count = ecs_find_lights(world, lights, MAX_POINT_LIGHTS);
+    rhi_shader_set_int(active_shader, "uNumPointLights", light_count);
+
+    for (int i = 0; i < light_count; i++) {
+        const float* lm = world->transforms[lights[i]].model_matrix;
+        const LightComponent* lc = &world->lights[lights[i]];
+
+        char pos_name[32], color_name[32];
+        snprintf(pos_name, sizeof(pos_name), "uPointLightPos[%d]", i);
+        snprintf(color_name, sizeof(color_name), "uPointLightColor[%d]", i);
+
+        rhi_shader_set_vec3(active_shader, pos_name, lm[12], lm[13], lm[14]);
+        rhi_shader_set_vec3(active_shader, color_name,
+            lc->color[0] * lc->intensity,
+            lc->color[1] * lc->intensity,
+            lc->color[2] * lc->intensity);
+    }
+
     for (int i = 0; i < ECS_MAX_ENTITIES; i++) {
         if (!ecs_is_alive(world, i) || !ecs_has_component(world, i, COMPONENT_MESH)) continue;
         if (!cached_meshes[i]) continue;

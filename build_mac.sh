@@ -16,7 +16,7 @@ mkdir -p build
 
 # Install dependencies
 echo "📦 Installing dependencies with Conan..."
-conan install . --build=missing
+conan install . --build=missing -s compiler.cppstd=17
 
 # Configure with CMake
 echo "⚙️  Configuring with CMake..."

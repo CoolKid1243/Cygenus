@@ -23,7 +23,7 @@ struct RHIShader {
 typedef struct {
     GLuint id;
     size_t count;
-    GLenum target; // GL_ARRAY_BUFFER or GL_ELEMENT_ARRAY_BUFFER
+    GLenum target;
 } OpenGLBuffer;
 
 typedef struct {
