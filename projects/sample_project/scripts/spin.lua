@@ -1,20 +1,12 @@
 function start()
-    cube = engine.find_entity("Cube")
+    Car = engine.find_entity("Car")
     camera = engine.find_entity("Camera")
-
-    local s = engine.create_sphere()
-    engine.set_position(s, 0, 0, 2)
-    engine.set_tint(s, 1, 0.4, 0.2)
-
-    local p = engine.create_plane()
-    engine.set_position(p, 0, -1, 0)
-    engine.set_tint(p, 0.4, 0.6, 0.4)
 end
 
 function update(dt)
-    if cube then
-        local rx, ry, rz = engine.get_rotation(cube)
-        engine.set_rotation(cube, rx, ry + 45 * dt, rz)
+    if Car then
+        local rx, ry, rz = engine.get_rotation(Car)
+        engine.set_rotation(Car, rx, ry + 15 * dt, rz)
     end
 
     -- Build forward/right vectors from the camera's current yaw (rotation.y),

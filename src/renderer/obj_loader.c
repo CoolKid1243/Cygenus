@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <math.h>
 
 #include "ufbx.h"
 
@@ -179,29 +180,48 @@ static RHIMesh* load_fbx_mesh(const char* filepath) {
     // materials, skeletons, or animation are read yet either.
     ufbx_mesh* mesh = scene->meshes.data[0];
 
+    ufbx_node* node = mesh->instances.count > 0 ? mesh->instances.data[0] : scene->root_node;
+    ufbx_matrix to_world = node->geometry_to_world;
+    ufbx_matrix normal_matrix = ufbx_matrix_for_normals(&to_world);
+
+    int flip_winding = ufbx_matrix_determinant(&to_world) < 0.0;
+    static const int vertex_order[3]  = {0, 1, 2};
+    static const int flipped_order[3] = {0, 2, 1};
+    const int* order = flip_winding ? flipped_order : vertex_order;
+
     VertexArray vertices = {0};
     uint32_t* tri_indices = malloc(mesh->max_face_triangles * 3 * sizeof(uint32_t));
 
     for (size_t f = 0; f < mesh->faces.count; f++) {
         ufbx_face face = mesh->faces.data[f];
-        uint32_t num_tri_indices = ufbx_triangulate_face(tri_indices, mesh->max_face_triangles * 3, mesh, face);
+        uint32_t num_triangles = ufbx_triangulate_face(tri_indices, mesh->max_face_triangles * 3, mesh, face);
+        uint32_t num_tri_indices = num_triangles * 3;
 
-        for (uint32_t t = 0; t < num_tri_indices; t++) {
-            uint32_t index = tri_indices[t];
+        for (uint32_t t = 0; t < num_tri_indices; t += 3) {
+            for (int k = 0; k < 3; k++) {
+                uint32_t index = tri_indices[t + order[k]];
 
-            ufbx_vec3 pos = ufbx_get_vertex_vec3(&mesh->vertex_position, index);
-            ufbx_vec3 nrm = mesh->vertex_normal.exists
-                ? ufbx_get_vertex_vec3(&mesh->vertex_normal, index)
-                : (ufbx_vec3){0, 1, 0};
-            ufbx_vec2 uv = mesh->vertex_uv.exists
-                ? ufbx_get_vertex_vec2(&mesh->vertex_uv, index)
-                : (ufbx_vec2){0, 0};
+                ufbx_vec3 local_pos = ufbx_get_vertex_vec3(&mesh->vertex_position, index);
+                ufbx_vec3 local_nrm = mesh->vertex_normal.exists
+                    ? ufbx_get_vertex_vec3(&mesh->vertex_normal, index)
+                    : (ufbx_vec3){0, 1, 0};
+                ufbx_vec2 uv = mesh->vertex_uv.exists
+                    ? ufbx_get_vertex_vec2(&mesh->vertex_uv, index)
+                    : (ufbx_vec2){0, 0};
 
-            RHIVertex vert;
-            vert.x = (float)pos.x;  vert.y = (float)pos.y;  vert.z = (float)pos.z;
-            vert.nx = (float)nrm.x; vert.ny = (float)nrm.y; vert.nz = (float)nrm.z;
-            vert.u = (float)uv.x;   vert.v = (float)uv.y;
-            vertex_array_push(&vertices, vert);
+                ufbx_vec3 pos = ufbx_transform_position(&to_world, local_pos);
+                ufbx_vec3 nrm = ufbx_transform_direction(&normal_matrix, local_nrm);
+                double nrm_len = sqrt(nrm.x * nrm.x + nrm.y * nrm.y + nrm.z * nrm.z);
+                if (nrm_len > 1e-8) {
+                    nrm.x /= nrm_len; nrm.y /= nrm_len; nrm.z /= nrm_len;
+                }
+
+                RHIVertex vert;
+                vert.x = (float)pos.x;  vert.y = (float)pos.y;  vert.z = (float)pos.z;
+                vert.nx = (float)nrm.x; vert.ny = (float)nrm.y; vert.nz = (float)nrm.z;
+                vert.u = (float)uv.x;   vert.v = (float)uv.y;
+                vertex_array_push(&vertices, vert);
+            }
         }
     }
 
