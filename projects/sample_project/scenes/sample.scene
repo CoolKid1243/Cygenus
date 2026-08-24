@@ -1,12 +1,10 @@
-SCENE 3
+SCENE 26
 ENTITY
-name Cube
-position 0.000000 0.000000 0.000000
-rotation 0.000000 -0.000000 0.000000
-scale 2.512200 2.512200 2.512200
-mesh oldcar/source/ZIS101Sport.fbx
-texture oldcar/textures/body01_albedo.jpg
-tint 1.000000 1.000000 1.000000
+name Car
+position -0.000000 0.309614 0.000000
+rotation -90.000000 -0.000000 0.000000
+scale 0.033300 0.033300 0.033300
+mesh oldcar/source/ZIS101Sport.fbx#Body
 parent -1
 END
 ENTITY
@@ -27,4 +25,188 @@ rotation 0.000000 -0.000000 0.000000
 scale 0.700000 0.700000 0.700000
 camera 45.000000 0.100000 100.000000 1
 parent -1
+END
+ENTITY
+name interior
+position 0.000000 0.000000 0.000000
+rotation 0.000000 0.000000 0.000000
+scale 1.000000 1.000000 1.000000
+mesh oldcar/source/ZIS101Sport.fbx#interior
+parent 0
+END
+ENTITY
+name RearWheelR
+position -30.770834 58.702461 -16.747566
+rotation 0.000000 0.000000 0.000000
+scale 1.000000 1.000000 1.000000
+mesh oldcar/source/ZIS101Sport.fbx#RearWheelR
+parent 0
+END
+ENTITY
+name FrontWheelR
+position -30.770834 -74.920685 -16.747578
+rotation 0.000000 0.000000 0.000000
+scale 1.000000 1.000000 1.000000
+mesh oldcar/source/ZIS101Sport.fbx#FrontWheelR
+parent 0
+END
+ENTITY
+name FrontWheelL
+position 30.770817 -74.920685 -16.747578
+rotation 0.000000 0.000000 0.000000
+scale 1.000000 1.000000 1.000000
+mesh oldcar/source/ZIS101Sport.fbx#FrontWheelL
+parent 0
+END
+ENTITY
+name roof
+position 0.000000 0.000000 0.000000
+rotation 0.000000 0.000000 0.000000
+scale 1.000000 1.000000 1.000000
+mesh oldcar/source/ZIS101Sport.fbx#roof
+parent 0
+END
+ENTITY
+name LightsL
+position 19.977432 1.928436 -6.929329
+rotation 0.000000 0.000000 0.000000
+scale 1.000000 1.000000 1.000000
+mesh oldcar/source/ZIS101Sport.fbx#LightsL
+parent 0
+END
+ENTITY
+name LightsR
+position -19.977425 1.928436 -6.929329
+rotation 0.000000 0.000000 0.000000
+scale 1.000000 1.000000 1.000000
+mesh oldcar/source/ZIS101Sport.fbx#LightsR
+parent 0
+END
+ENTITY
+name RearWheelL
+position 30.770817 58.702461 -16.747566
+rotation 0.000000 0.000000 0.000000
+scale 1.000000 1.000000 1.000000
+mesh oldcar/source/ZIS101Sport.fbx#RearWheelL
+parent 0
+END
+ENTITY
+name STwheel
+position 13.083683 -13.093238 7.303381
+rotation 0.000000 0.000000 0.000000
+scale 1.000000 1.000000 1.000000
+mesh oldcar/source/ZIS101Sport.fbx#STwheel
+parent 0
+END
+ENTITY
+name instruments
+position 0.000000 -23.615383 8.693792
+rotation 0.000000 0.000000 0.000000
+scale 1.000000 1.000000 1.000000
+mesh oldcar/source/ZIS101Sport.fbx#instruments
+parent 0
+END
+ENTITY
+name DoorL
+position 26.018919 -5.553564 -2.727587
+rotation 0.000000 0.000000 0.000000
+scale 1.000000 1.000000 1.000000
+mesh oldcar/source/ZIS101Sport.fbx#DoorL
+parent 0
+END
+ENTITY
+name DoorR
+position -26.018913 -5.553564 -2.727596
+rotation 0.000000 0.000000 0.000000
+scale 1.000000 1.000000 1.000000
+mesh oldcar/source/ZIS101Sport.fbx#DoorR
+parent 0
+END
+ENTITY
+name IndoorL
+position 24.650501 -6.948968 -2.361979
+rotation 0.000000 0.000000 0.000000
+scale 1.000000 1.000000 1.000000
+mesh oldcar/source/ZIS101Sport.fbx#IndoorL
+parent 0
+END
+ENTITY
+name IndoorR
+position -24.650499 -6.948968 -2.361980
+rotation 0.000000 0.000000 0.000000
+scale 1.000000 1.000000 1.000000
+mesh oldcar/source/ZIS101Sport.fbx#IndoorR
+parent 0
+END
+ENTITY
+name wingshild
+position 0.000000 0.000000 0.000000
+rotation 0.000000 0.000000 0.000000
+scale 1.000000 1.000000 1.000000
+mesh oldcar/source/ZIS101Sport.fbx#wingshild
+parent 0
+END
+ENTITY
+name rearGlass
+position 0.000000 0.000000 0.000000
+rotation 0.000000 0.000000 0.000000
+scale 1.000000 1.000000 1.000000
+mesh oldcar/source/ZIS101Sport.fbx#rearGlass
+parent 0
+END
+ENTITY
+name instrGlass
+position 0.000000 -23.615383 8.693792
+rotation 0.000000 0.000000 0.000000
+scale 1.000000 1.000000 1.000000
+mesh oldcar/source/ZIS101Sport.fbx#instrGlass
+parent 0
+END
+ENTITY
+name StWGlass
+position 13.083683 -13.093238 7.303381
+rotation 0.000000 0.000000 0.000000
+scale 1.000000 1.000000 1.000000
+mesh oldcar/source/ZIS101Sport.fbx#StWGlass
+parent 0
+END
+ENTITY
+name Buttons
+position 0.000000 0.000000 0.000000
+rotation 0.000000 0.000000 0.000000
+scale 1.000000 1.000000 1.000000
+mesh oldcar/source/ZIS101Sport.fbx#Buttons
+parent 0
+END
+ENTITY
+name BtakeLight
+position 19.977432 1.928436 -6.929329
+rotation 0.000000 0.000000 0.000000
+scale 1.000000 1.000000 1.000000
+mesh oldcar/source/ZIS101Sport.fbx#BtakeLight
+parent 0
+END
+ENTITY
+name TurnLight
+position 19.977432 1.928436 -6.929329
+rotation 0.000000 0.000000 0.000000
+scale 1.000000 1.000000 1.000000
+mesh oldcar/source/ZIS101Sport.fbx#TurnLight
+parent 0
+END
+ENTITY
+name HeadLight
+position 19.977432 1.928436 -6.929329
+rotation 0.000000 0.000000 0.000000
+scale 1.000000 1.000000 1.000000
+mesh oldcar/source/ZIS101Sport.fbx#HeadLight
+parent 0
+END
+ENTITY
+name Object001
+position 0.000000 0.000000 0.000000
+rotation 0.000000 0.000000 0.000000
+scale 1.000000 1.000000 1.000000
+mesh oldcar/source/ZIS101Sport.fbx#Object001
+parent 0
 END

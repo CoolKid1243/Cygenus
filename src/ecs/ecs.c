@@ -147,6 +147,15 @@ void ecs_set_parent(EcsWorld* world, Entity child, Entity parent) {
     ct->dirty = 1;
 }
 
+int ecs_is_ancestor(const EcsWorld* world, Entity ancestor, Entity node) {
+    Entity cur = node;
+    while (ecs_is_alive(world, cur)) {
+        if (cur == ancestor) return 1;
+        cur = world->transforms[cur].parent;
+    }
+    return 0;
+}
+
 static void update_transform_recursive(EcsWorld* world, Entity e, const float* parent_matrix, int parent_dirty) {
     TransformComponent* t = &world->transforms[e];
     int was_dirty = t->dirty || parent_dirty;

@@ -11,6 +11,8 @@ extern "C" {
 void render_system_init(RHIShader* shader);
 // Loads/reloads meshes and textures for entities whose paths changed
 void render_system_sync(EcsWorld* world);
+
+void render_system_assign_mesh(Entity e, RHIMesh* mesh, const char* mesh_path_tag);
 // Draws every entity that has a mesh component
 void render_system_draw(EcsWorld* world);
 void render_system_shutdown(void);

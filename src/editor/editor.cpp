@@ -12,11 +12,15 @@
 #include <GLFW/glfw3.h>
 #include "../core/project.h"
 #include "../renderer/rhi.h"
+#include "../renderer/render_system.h"
+#include "../renderer/obj_loader.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include <math.h>
 #include <sys/stat.h>
+#include <ctype.h>
+#include <vector>
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -333,6 +337,60 @@ static bool component_remove_button(const char* id) {
     return ImGui::SmallButton(label);
 }
 
+static bool has_extension_ci(const char* name, const char* ext) {
+    size_t name_len = strlen(name);
+    size_t ext_len = strlen(ext);
+    if (name_len < ext_len) return false;
+    const char* tail = name + (name_len - ext_len);
+    for (size_t i = 0; i < ext_len; i++) {
+        if (tolower((unsigned char)tail[i]) != tolower((unsigned char)ext[i])) return false;
+    }
+    return true;
+}
+
+// Imports every mesh in an FBX file as a parented hierarchy of entities: the
+// first mesh in the file becomes a root entity, and every other mesh in the
+// file is created as a child underneath it (matching how Unity flattens a
+// multi-object FBX import under one entity when it's dragged into a scene).
+static void import_fbx_to_scene(const char* full_path, const char* relative_path) {
+    if (!world) return;
+
+    FbxImportResult result = obj_load_fbx_multi(full_path);
+    if (result.count == 0) return; // obj_load_fbx_multi already printed why
+
+    std::vector<Entity> created(result.count, ECS_INVALID_ENTITY);
+
+    for (int i = 0; i < result.count; i++) {
+        FbxMeshNode* n = &result.nodes[i];
+
+        Entity e = ecs_create_entity(world, n->name);
+        created[i] = e;
+
+        ecs_add_component(world, e, COMPONENT_TRANSFORM);
+        TransformComponent* t = &world->transforms[e];
+        t->position = n->position;
+        t->rotation = n->rotation;
+        t->scale = n->scale;
+        t->dirty = 1;
+
+        ecs_add_component(world, e, COMPONENT_MESH);
+        // Tag with the file + node name rather than the plain file path, so
+        // render_system_sync() won't confuse this sub-mesh with any other
+        // entity pointing at the same file, and won't try to re-load it
+        // itself (it only knows how to return one mesh per path).
+        snprintf(world->meshes[e].mesh_path, sizeof(world->meshes[e].mesh_path),
+            "%s#%s", relative_path, n->name);
+        render_system_assign_mesh(e, n->mesh, world->meshes[e].mesh_path);
+
+        if (n->parent_index >= 0) {
+            ecs_set_parent(world, e, created[n->parent_index]);
+        }
+    }
+
+    selected_entity = created[0];
+    obj_free_fbx_multi(&result);
+}
+
 static void list_directory(const char* path, const char* prefix) {
     DIR* dir = opendir(path);
     if (!dir) return;
@@ -352,9 +410,155 @@ static void list_directory(const char* path, const char* prefix) {
             }
         } else {
             ImGui::Text("\xf0\x9f\x93\x84 %s", entry->d_name); // 📄
+
+            if (has_extension_ci(entry->d_name, ".fbx")) {
+                char popup_id[560];
+                snprintf(popup_id, sizeof(popup_id), "file_ctx_%s", full_path);
+                if (ImGui::BeginPopupContextItem(popup_id)) {
+                    if (ImGui::MenuItem("Import into Scene")) {
+                        // full_path is relative to cwd (e.g.
+                        // "projects/sample_project/assets/models/x.fbx");
+                        // strip the project root prefix to get the path
+                        // form MeshComponent.mesh_path expects (relative to
+                        // the project, e.g. "assets/models/x.fbx").
+                        const char* relative = full_path;
+                        size_t root_len = strlen(project_root_path);
+                        if (strncmp(full_path, project_root_path, root_len) == 0 && full_path[root_len] == '/') {
+                            relative = full_path + root_len + 1;
+                        }
+                        import_fbx_to_scene(full_path, relative);
+                    }
+                    ImGui::EndPopup();
+                }
+            }
         }
     }
     closedir(dir);
+}
+
+
+// Renders one entity and its children as a tree, with drag-and-drop
+// reparenting: drag any row onto another to make it a child, or onto the
+// empty space below the tree to send it back to the top level.
+static void draw_hierarchy_node(Entity e) {
+    char label[96];
+    snprintf(label, sizeof(label), "%s##%d", world->names[e], e);
+
+    TransformComponent* t = &world->transforms[e];
+    bool has_children = t->child_count > 0;
+
+    ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_OpenOnDoubleClick
+        | ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_DefaultOpen;
+    if (!has_children) flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
+    if (selected_entity == e) flags |= ImGuiTreeNodeFlags_Selected;
+
+    bool open = ImGui::TreeNodeEx(label, flags);
+
+    if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) {
+        selected_entity = e;
+    }
+
+    // Drag source: pick this entity up to reparent it elsewhere.
+    if (ImGui::BeginDragDropSource()) {
+        ImGui::SetDragDropPayload("HIERARCHY_ENTITY", &e, sizeof(Entity));
+        ImGui::Text("%s", world->names[e]);
+        ImGui::EndDragDropSource();
+    }
+
+    // Drop target: reparent whatever's being dragged under this entity.
+    // Refuses drops that would create a cycle (dropping an entity onto
+    // itself or onto one of its own descendants).
+    if (ImGui::BeginDragDropTarget()) {
+        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("HIERARCHY_ENTITY")) {
+            Entity dragged = *(const Entity*)payload->Data;
+            if (ecs_is_alive(world, dragged) && !ecs_is_ancestor(world, dragged, e)) {
+                ecs_set_parent(world, dragged, e);
+            }
+        }
+        ImGui::EndDragDropTarget();
+    }
+
+    // Right-click context menu for hierarchy items
+    if (ImGui::BeginPopupContextItem(label)) {
+        selected_entity = e; // Select the right-clicked entity
+        if (ImGui::BeginMenu("Add Component")) {
+            if (!ecs_has_component(world, e, COMPONENT_TRANSFORM) && ImGui::MenuItem("Transform")) {
+                ecs_add_component(world, e, COMPONENT_TRANSFORM);
+            }
+            if (!ecs_has_component(world, e, COMPONENT_MESH) && ImGui::MenuItem("Mesh")) {
+                ecs_add_component(world, e, COMPONENT_MESH);
+                if (!world->meshes[e].mesh_path[0]) {
+                    snprintf(world->meshes[e].mesh_path, sizeof(world->meshes[e].mesh_path), "primitive:cube");
+                }
+            }
+            if (!ecs_has_component(world, e, COMPONENT_MATERIAL) && ImGui::MenuItem("Material")) {
+                ecs_add_component(world, e, COMPONENT_MATERIAL);
+            }
+            if (!ecs_has_component(world, e, COMPONENT_CAMERA) && ImGui::MenuItem("Camera")) {
+                ecs_add_component(world, e, COMPONENT_CAMERA);
+                if (ecs_get_display_camera(world, 1) == ECS_INVALID_ENTITY) {
+                    ecs_set_camera_display_tag(world, e, 1);
+                }
+            }
+            if (!ecs_has_component(world, e, COMPONENT_LIGHT) && ImGui::MenuItem("Light")) {
+                ecs_add_component(world, e, COMPONENT_LIGHT);
+            }
+            ImGui::EndMenu();
+        }
+        if (ImGui::MenuItem("Duplicate")) {
+            Entity new_entity = ecs_create_entity(world, world->names[e]);
+            // Copy components
+            if (ecs_has_component(world, e, COMPONENT_TRANSFORM)) {
+                ecs_add_component(world, new_entity, COMPONENT_TRANSFORM);
+                world->transforms[new_entity] = world->transforms[e];
+                // The copy above also copied the source entity's parent/
+                // children bookkeeping, which still points at the ORIGINAL
+                // entity's relationships, not the new one's - clear it and
+                // reparent properly instead of ending up with two entities
+                // both claiming the same children.
+                world->transforms[new_entity].parent = ECS_INVALID_ENTITY;
+                world->transforms[new_entity].child_count = 0;
+                if (world->transforms[e].parent != ECS_INVALID_ENTITY) {
+                    ecs_set_parent(world, new_entity, world->transforms[e].parent);
+                }
+            }
+            if (ecs_has_component(world, e, COMPONENT_MESH)) {
+                ecs_add_component(world, new_entity, COMPONENT_MESH);
+                world->meshes[new_entity] = world->meshes[e];
+            }
+            if (ecs_has_component(world, e, COMPONENT_MATERIAL)) {
+                ecs_add_component(world, new_entity, COMPONENT_MATERIAL);
+                world->materials[new_entity] = world->materials[e];
+            }
+            if (ecs_has_component(world, e, COMPONENT_CAMERA)) {
+                ecs_add_component(world, new_entity, COMPONENT_CAMERA);
+                world->cameras[new_entity] = world->cameras[e];
+            }
+            if (ecs_has_component(world, e, COMPONENT_LIGHT)) {
+                ecs_add_component(world, new_entity, COMPONENT_LIGHT);
+                world->lights[new_entity] = world->lights[e];
+            }
+            selected_entity = new_entity;
+        }
+        if (ImGui::MenuItem("Delete")) {
+            ecs_destroy_entity(world, e);
+            selected_entity = ECS_INVALID_ENTITY;
+        }
+        ImGui::EndPopup();
+    }
+
+    if (has_children && open) {
+        // Snapshot the child list before recursing - accepting a drag-drop
+        // reparent anywhere below could mutate this entity's children array
+        // (and child_count) mid-traversal otherwise.
+        int child_count = t->child_count;
+        Entity children[ECS_MAX_CHILDREN];
+        memcpy(children, t->children, sizeof(Entity) * child_count);
+        for (int c = 0; c < child_count; c++) {
+            draw_hierarchy_node(children[c]);
+        }
+        ImGui::TreePop();
+    }
 }
 
 extern "C" void editor_init(PlatformWindow* window) {
@@ -580,78 +784,26 @@ extern "C" void editor_render() {
     // ---- Windows ----
     ImGui::Begin("Hierarchy");
     draw_panel_grid();
-    
+
     for (int i = 0; i < ECS_MAX_ENTITIES; i++) {
         if (!ecs_is_alive(world, i)) continue;
-        char label[96];
-        snprintf(label, sizeof(label), "%s##%d", world->names[i], i);
-        
-        // Check if this item is right-clicked
-        bool is_selected = (selected_entity == i);
-        if (ImGui::Selectable(label, is_selected, 0, ImVec2(0,0))) {
-            selected_entity = i;
-        }
-        
-        // Right-click context menu for hierarchy items
-        if (ImGui::BeginPopupContextItem(label)) {
-            selected_entity = i; // Select the right-clicked entity
-            if (ImGui::BeginMenu("Add Component")) {
-                if (!ecs_has_component(world, i, COMPONENT_TRANSFORM) && ImGui::MenuItem("Transform")) {
-                    ecs_add_component(world, i, COMPONENT_TRANSFORM);
-                }
-                if (!ecs_has_component(world, i, COMPONENT_MESH) && ImGui::MenuItem("Mesh")) {
-                    ecs_add_component(world, i, COMPONENT_MESH);
-                    if (!world->meshes[i].mesh_path[0]) {
-                        snprintf(world->meshes[i].mesh_path, sizeof(world->meshes[i].mesh_path), "primitive:cube");
-                    }
-                }
-                if (!ecs_has_component(world, i, COMPONENT_MATERIAL) && ImGui::MenuItem("Material")) {
-                    ecs_add_component(world, i, COMPONENT_MATERIAL);
-                }
-                if (!ecs_has_component(world, i, COMPONENT_CAMERA) && ImGui::MenuItem("Camera")) {
-                    ecs_add_component(world, i, COMPONENT_CAMERA);
-                    if (ecs_get_display_camera(world, 1) == ECS_INVALID_ENTITY) {
-                        ecs_set_camera_display_tag(world, i, 1);
-                    }
-                }
-                if (!ecs_has_component(world, i, COMPONENT_LIGHT) && ImGui::MenuItem("Light")) {
-                    ecs_add_component(world, i, COMPONENT_LIGHT);
-                }
-                ImGui::EndMenu();
-            }
-            if (ImGui::MenuItem("Duplicate")) {
-                Entity new_entity = ecs_create_entity(world, world->names[i]);
-                // Copy components
-                if (ecs_has_component(world, i, COMPONENT_TRANSFORM)) {
-                    ecs_add_component(world, new_entity, COMPONENT_TRANSFORM);
-                    world->transforms[new_entity] = world->transforms[i];
-                }
-                if (ecs_has_component(world, i, COMPONENT_MESH)) {
-                    ecs_add_component(world, new_entity, COMPONENT_MESH);
-                    world->meshes[new_entity] = world->meshes[i];
-                }
-                if (ecs_has_component(world, i, COMPONENT_MATERIAL)) {
-                    ecs_add_component(world, new_entity, COMPONENT_MATERIAL);
-                    world->materials[new_entity] = world->materials[i];
-                }
-                if (ecs_has_component(world, i, COMPONENT_CAMERA)) {
-                    ecs_add_component(world, new_entity, COMPONENT_CAMERA);
-                    world->cameras[new_entity] = world->cameras[i];
-                }
-                if (ecs_has_component(world, i, COMPONENT_LIGHT)) {
-                    ecs_add_component(world, new_entity, COMPONENT_LIGHT);
-                    world->lights[new_entity] = world->lights[i];
-                }
-                selected_entity = new_entity;
-            }
-            if (ImGui::MenuItem("Delete")) {
-                ecs_destroy_entity(world, i);
-                selected_entity = ECS_INVALID_ENTITY;
-            }
-            ImGui::EndPopup();
-        }
+        if (world->transforms[i].parent != ECS_INVALID_ENTITY) continue; // drawn as someone's child instead
+        draw_hierarchy_node(i);
     }
-    
+
+    // Drop target covering the empty space below the tree - drag an entity
+    // here to unparent it back to the top level.
+    ImGui::Dummy(ImGui::GetContentRegionAvail());
+    if (ImGui::BeginDragDropTarget()) {
+        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("HIERARCHY_ENTITY")) {
+            Entity dragged = *(const Entity*)payload->Data;
+            if (ecs_is_alive(world, dragged)) {
+                ecs_set_parent(world, dragged, ECS_INVALID_ENTITY);
+            }
+        }
+        ImGui::EndDragDropTarget();
+    }
+
     // Right-click context menu for empty hierarchy space
     if (ImGui::BeginPopupContextWindow("HierarchyContext")) {
         if (ImGui::BeginMenu("Create")) {

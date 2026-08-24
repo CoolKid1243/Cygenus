@@ -51,6 +51,14 @@ static void free_slot(int i) {
     loaded_texture_paths[i][0] = '\0';
 }
 
+void render_system_assign_mesh(Entity e, RHIMesh* mesh, const char* mesh_path_tag) {
+    if (e < 0 || e >= ECS_MAX_ENTITIES) return;
+    if (cached_meshes[e]) rhi_mesh_destroy(cached_meshes[e]);
+    cached_meshes[e] = mesh;
+    snprintf(loaded_mesh_paths[e], sizeof(loaded_mesh_paths[e]), "%s", mesh_path_tag ? mesh_path_tag : "");
+    material_init(&cached_materials[e], active_shader);
+}
+
 void render_system_sync(EcsWorld* world) {
     for (int i = 0; i < ECS_MAX_ENTITIES; i++) {
         if (!ecs_is_alive(world, i) || !ecs_has_component(world, i, COMPONENT_MESH)) {

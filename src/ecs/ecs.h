@@ -101,6 +101,8 @@ Entity ecs_find_by_name(const EcsWorld* world, const char* name);
 void ecs_rename_entity(EcsWorld* world, Entity e, const char* new_name);
 
 void ecs_set_parent(EcsWorld* world, Entity child, Entity parent);
+
+int ecs_is_ancestor(const EcsWorld* world, Entity ancestor, Entity node);
 // Recomputes model matrices for dirty entities (parents first)
 void ecs_update_transforms(EcsWorld* world);
 
